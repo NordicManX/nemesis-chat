@@ -1,0 +1,27 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Chat {
+  id           String    @id @default(cuid())
+  telegramId   String    @unique
+  customerName String?
+  messages     Message[]
+  createdAt    DateTime  @default(now())
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  sender    String   // 'CUSTOMER' ou 'AGENT'
+  chatId    String
+  chat      Chat     @relation(fields: [chatId], references: [id])
+  createdAt DateTime @default(now())
+}
