@@ -1,86 +1,65 @@
 // app/page.tsx
 import { prisma } from '@/lib/prisma';
-import Link from 'next/link';
-import LogoutButton from './components/logout-button'; // <--- 1. IMPORT NOVO
+import DashboardClient from './components/dashboard-client';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Dashboard() {
+// O Next.js entrega os parametros da URL (searchParams) aqui
+export default async function Dashboard(props: { searchParams: Promise<{ chatId?: string }> }) {
+  const searchParams = await props.searchParams;
+  const selectedChatId = searchParams.chatId;
+
+  // 1. Busca lista de Chats (Sidebar)
   const chats = await prisma.chat.findMany({
     include: {
-      messages: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
+      messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      _count: { select: { messages: true } }
     },
     orderBy: { createdAt: 'desc' },
   });
 
+  // 2. Se tiver um ID na URL, busca a conversa completa
+  let selectedChat = null;
+  if (selectedChatId) {
+    selectedChat = await prisma.chat.findUnique({
+      where: { id: selectedChatId },
+      include: {
+        messages: { orderBy: { createdAt: 'asc' } } // Histórico completo
+      }
+    });
+  }
+
+  // 3. Dados dos Gráficos (Dashboard)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const recentMessages = await prisma.message.findMany({
+    select: { createdAt: true },
+    where: { createdAt: { gte: sevenDaysAgo } }
+  });
+
+  const chartDataMap = new Map();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    chartDataMap.set(dateStr, 0);
+  }
+  recentMessages.forEach(msg => {
+    const dateStr = new Date(msg.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    if (chartDataMap.has(dateStr)) chartDataMap.set(dateStr, chartDataMap.get(dateStr) + 1);
+  });
+  const chartData = Array.from(chartDataMap).map(([date, count]) => ({ date, count }));
+
+  const totalClients = chats.length;
+  const totalMessages = chats.reduce((acc, chat) => acc + chat._count.messages, 0);
+  const activeNow = chats.filter(c => c.messages.length > 0 && (new Date().getTime() - new Date(c.messages[0].createdAt).getTime()) < 24 * 60 * 60 * 1000).length;
+
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-8">
-      <header className="mb-8 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-emerald-400">Nemesis Chat</h1>
-          <p className="text-gray-400">Painel de Controle em Tempo Real</p>
-        </div>
-        
-        {/* Área de Ações do Cabeçalho */}
-        <div className="flex gap-4 items-center">
-          {/* Botão Configurações */}
-          <Link href="/profile" className="text-gray-300 hover:text-white font-medium text-sm border border-gray-600 px-3 py-2 rounded-lg hover:bg-gray-800 transition flex items-center gap-2">
-            ⚙️ Configurações
-          </Link>
-          
-          {/* Contador de Clientes */}
-          <div className="bg-gray-800 px-4 py-2 rounded-lg border border-gray-700">
-            <span className="text-emerald-400 font-bold">{chats.length}</span> Clientes
-          </div>
-
-          {/* Botão Sair (Novo) */}
-          <LogoutButton />  {/* <--- 2. BOTÃO AQUI */}
-        </div>
-      </header>
-
-      {/* Grid de Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {chats.map((chat) => (
-          <div key={chat.id} className="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-emerald-500 transition-colors shadow-lg">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h2 className="text-xl font-semibold text-white">
-                  {chat.customerName || 'Desconhecido'}
-                </h2>
-                <span className="text-xs text-gray-500">ID: {chat.telegramId}</span>
-              </div>
-              <span className="bg-emerald-500/10 text-emerald-400 text-xs px-2 py-1 rounded-full border border-emerald-500/20">
-                Ativo
-              </span>
-            </div>
-            
-            <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700/50 min-h-[60px]">
-              <p className="text-sm text-gray-300 line-clamp-2">
-                {chat.messages[0]?.content || 'Nenhuma mensagem...'}
-              </p>
-            </div>
-            
-            <div className="mt-4 flex justify-end">
-              <Link 
-                href={`/chat/${chat.id}`} 
-                className="text-sm text-emerald-400 hover:text-emerald-300 font-medium hover:underline"
-              >
-                Ver Conversa →
-              </Link>
-            </div>
-          </div>
-        ))}
-        
-        {chats.length === 0 && (
-          <div className="col-span-full text-center py-20 bg-gray-800 rounded-xl border border-gray-700 border-dashed">
-            <p className="text-gray-500 text-lg">Nenhuma conversa iniciada ainda.</p>
-            <p className="text-sm text-gray-600 mt-2">Mande um "Oi" no Telegram para testar!</p>
-          </div>
-        )}
-      </div>
-    </main>
+    <DashboardClient 
+      chats={chats}
+      chartData={chartData}
+      kpi={{ totalClients, totalMessages, activeNow }}
+      selectedChat={selectedChat} // Passa o chat selecionado (se houver)
+    />
   );
 }
