@@ -1,4 +1,5 @@
 // app/page.tsx
+import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 
 // Isso diz ao Next.js para não guardar cache dessa página (sempre mostrar dados novos)
@@ -51,10 +52,13 @@ export default async function Dashboard() {
             </div>
             
             <div className="mt-4 flex justify-end">
-              <button className="text-sm text-emerald-400 hover:text-emerald-300 font-medium">
-                Ver Conversa →
-              </button>
-            </div>
+  <Link 
+    href={`/chat/${chat.id}`} 
+    className="text-sm text-emerald-400 hover:text-emerald-300 font-medium"
+  >
+    Ver Conversa →
+  </Link>
+</div>
           </div>
         ))}
         
