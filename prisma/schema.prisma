@@ -13,16 +13,17 @@ model Chat {
   id            String    @id @default(cuid())
   telegramId    String    @unique
   customerName  String?
+  department    String?   @default("GERAL") 
   messages      Message[]
   createdAt     DateTime  @default(now())
-  lastMessageAt DateTime  @default(now()) // <--- CAMPO NOVO (Rastreia atividade)
+  lastMessageAt DateTime  @default(now())
 }
 
 model Message {
   id        String   @id @default(cuid())
   content   String
-  sender    String   // 'CUSTOMER' ou 'AGENT'
-  isRead    Boolean  @default(false) // <--- O CAMPO NOVO ESTÁ AQUI
+  sender    String   
+  isRead    Boolean  @default(false) 
   chatId    String
   chat      Chat     @relation(fields: [chatId], references: [id])
   createdAt DateTime @default(now())
@@ -33,6 +34,8 @@ model User {
   email     String   @unique
   password  String
   name      String?
-  role      String   @default("AGENT")
+  avatar    String?
+  role      String   @default("AGENT")    
+  department String  @default("GERAL")    
   createdAt DateTime @default(now())
 }

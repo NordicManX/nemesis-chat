@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, X, ArrowLeft, Check } from 'lucide-react'; // <--- Import ArrowLeft e Check
+import { Send, X, ArrowLeft, Check, Briefcase } from 'lucide-react';
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -11,10 +11,13 @@ interface ChatWindowProps {
   initialMessages: any[];
 }
 
+const DEPARTMENTS = ["GERAL", "FINANCEIRO", "SUPORTE", "VENDAS"];
+
 export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const [messages, setMessages] = useState(initialMessages);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [department, setDepartment] = useState(chat.department || "GERAL");
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -24,7 +27,19 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
 
   useEffect(() => {
     setMessages(initialMessages);
-  }, [initialMessages]);
+    setDepartment(chat.department || "GERAL"); // Atualiza se mudar de chat
+  }, [initialMessages, chat]);
+
+  // Função para trocar setor
+  async function handleChangeDepartment(newDept: string) {
+    setDepartment(newDept);
+    await fetch('/api/chat/department', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: chat.id, department: newDept }),
+    });
+    router.refresh();
+  }
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -55,24 +70,35 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 w-full"> {/* w-full garante largura total no mobile */}
+    <div className="flex flex-col h-full bg-gray-950 w-full">
       
       {/* Cabeçalho do Chat */}
       <div className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-6 bg-gray-900 flex-shrink-0">
         <div className="flex items-center gap-3">
-          
-          {/* BOTÃO VOLTAR (Só aparece no mobile 'md:hidden') */}
           <Link href="/" className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white">
             <ArrowLeft size={20} />
           </Link>
 
           <div>
-            <h2 className="text-lg font-bold text-white truncate max-w-[200px]">{chat.customerName}</h2>
-            <p className="text-xs text-emerald-400">ID: {chat.telegramId}</p>
+            <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">{chat.customerName}</h2>
+            {/* Seletor de Departamento */}
+            <div className="flex items-center gap-1 text-xs text-emerald-400 cursor-pointer group relative">
+                <Briefcase size={12} />
+                <select 
+                    value={department}
+                    onChange={(e) => handleChangeDepartment(e.target.value)}
+                    className="bg-transparent border-none focus:ring-0 p-0 text-xs font-medium cursor-pointer uppercase hover:text-white transition"
+                >
+                    {DEPARTMENTS.map(dept => (
+                        <option key={dept} value={dept} className="bg-gray-800 text-white">
+                            {dept}
+                        </option>
+                    ))}
+                </select>
+            </div>
           </div>
         </div>
 
-        {/* Botão Fechar (Só Desktop) */}
         <Link href="/" className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white" title="Fechar Conversa">
            <X size={20} />
         </Link>
@@ -80,6 +106,13 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
 
       {/* Área de Mensagens */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scrollbar">
+        {/* Aviso de Início */}
+        <div className="text-center py-4">
+            <span className="bg-gray-800 text-gray-500 text-[10px] px-3 py-1 rounded-full uppercase">
+                Setor: {department}
+            </span>
+        </div>
+
         {messages.map((msg: any) => (
           <div key={msg.id} className={`flex ${msg.sender === 'AGENT' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] md:max-w-[70%] p-3 rounded-2xl text-sm ${

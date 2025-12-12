@@ -4,7 +4,6 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
-// Detecta se está em produção (Vercel) para usar cookies seguros
 const useSecureCookies = process.env.NODE_ENV === 'production';
 const cookiePrefix = useSecureCookies ? '__Secure-' : '';
 
@@ -18,7 +17,7 @@ export const authOptions: AuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-
+        
         const user = await prisma.user.findUnique({
           where: { email: credentials.email }
         });
@@ -29,27 +28,48 @@ export const authOptions: AuthOptions = {
 
         if (!passwordMatch) return null;
 
+        // Retornamos tudo o que queremos salvar na sessão
         return {
           id: user.id,
           name: user.name,
           email: user.email,
+          image: user.avatar,
+          role: user.role,           // <--- IMPORTANTE
+          department: user.department // <--- IMPORTANTE
         };
       }
     })
   ],
+  
+  // AQUI A MÁGICA: Passamos os dados do login para o Token e do Token para a Sessão
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = user.role;
+        token.department = user.department;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        // @ts-ignore
+        session.user.role = token.role;
+        // @ts-ignore
+        session.user.department = token.department;
+      }
+      return session;
+    }
+  },
+
   pages: {
     signIn: '/auth/login',
   },
   
   session: {
     strategy: "jwt",
-    // Define a validade do Token para 30 minutos.
-    // Mesmo que o navegador restaure o cookie, se passar de 30min, o token será inválido.
-    maxAge: 30 * 60, 
+    maxAge: 15 * 60, 
   },
 
-  
-  // Sobrescrevido o cookie padrão para tentar forçar o comportamento de "Sessão"
   cookies: {
     sessionToken: {
       name: `${cookiePrefix}next-auth.session-token`,
@@ -58,12 +78,9 @@ export const authOptions: AuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: useSecureCookies,
-        // NÃO definimos maxAge aqui dentro. 
-        // Isso sinaliza pro navegador que é um "Session Cookie" (deve morrer ao fechar).
       }
     }
   },
-  
 
   secret: process.env.NEXTAUTH_SECRET,
 };

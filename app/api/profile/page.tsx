@@ -4,38 +4,32 @@ import { useSession, signOut } from 'next-auth/react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-const DEPARTMENTS = ["GERAL", "FINANCEIRO", "SUPORTE", "VENDAS"];
-
 export default function ProfilePage() {
-  const { data: session, update } = useSession();
+  const { data: session, update } = useSession(); // 'update' serve para atualizar a sessão sem relogar
   
-  // --- ESTADOS: DADOS PESSOAIS ---
+  // Dados do Perfil
   const [name, setName] = useState('');
   const [avatar, setAvatar] = useState('');
   const [profileMsg, setProfileMsg] = useState('');
 
-  // --- ESTADOS: TROCA DE SENHA ---
+  // Dados da Senha
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [passMsg, setPassMsg] = useState('');
 
-  // --- ESTADOS: CRIAR NOVO USUÁRIO ---
-  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'AGENT', department: 'GERAL' });
-  const [userMsg, setUserMsg] = useState('');
-
-  // Carrega dados iniciais do usuário logado
+  // Carrega dados iniciais quando a sessão estiver pronta
   useEffect(() => {
     if (session?.user) {
       setName(session.user.name || '');
       // @ts-ignore
-      setAvatar(session.user.avatar || '');
+      setAvatar(session.user.avatar || ''); // O TS pode reclamar do avatar, mas vai funcionar
     }
   }, [session]);
 
-  // 1. Atualizar Perfil (Nome e Foto)
   async function handleUpdateProfile(e: React.FormEvent) {
     e.preventDefault();
     setProfileMsg('Salvando...');
+    
     const res = await fetch('/api/profile/update', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -44,13 +38,13 @@ export default function ProfilePage() {
 
     if (res.ok) {
       setProfileMsg('✅ Perfil atualizado!');
+      // Atualiza a sessão localmente para refletir o nome novo na hora
       await update({ ...session, user: { ...session?.user, name, avatar } });
     } else {
       setProfileMsg('❌ Erro ao salvar.');
     }
   }
 
-  // 2. Mudar Senha
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     setPassMsg('Processando...');
@@ -71,23 +65,6 @@ export default function ProfilePage() {
     }
   }
 
-  // 3. Criar Novo Usuário (Com Setor)
-  async function handleCreateUser(e: React.FormEvent) {
-    e.preventDefault();
-    setUserMsg('Criando...');
-    const res = await fetch('/api/users/create', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(newUser)
-    });
-    const data = await res.json();
-    if (data.error) setUserMsg(`❌ ${data.error}`);
-    else {
-      setUserMsg('✅ Usuário criado com sucesso!');
-      setNewUser({ name: '', email: '', password: '', role: 'AGENT', department: 'GERAL' });
-    }
-  }
-
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
       <header className="flex justify-between items-center mb-8 pb-4 border-b border-gray-800">
@@ -97,35 +74,41 @@ export default function ProfilePage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         
-        {/* CARTÃO 1: DADOS PESSOAIS */}
+        {/* Cartão 1: Dados Pessoais */}
         <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
           <h2 className="text-xl font-bold mb-4">👤 Dados Pessoais</h2>
           <form onSubmit={handleUpdateProfile} className="space-y-4">
             <div className="flex justify-center mb-4">
+               {/* Preview da Foto */}
                <img 
                  src={avatar || "https://ui-avatars.com/api/?background=random&name=" + name} 
                  alt="Avatar" 
                  className="w-20 h-20 rounded-full border-2 border-emerald-500 object-cover"
                />
             </div>
+
             <div>
               <label className="block text-sm text-gray-400">Nome de Exibição</label>
               <input type="text" className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
                 value={name} onChange={e => setName(e.target.value)} />
             </div>
+            
             <div>
               <label className="block text-sm text-gray-400">URL da Foto (Link)</label>
               <input type="text" placeholder="https://..." className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1 text-xs"
                 value={avatar} onChange={e => setAvatar(e.target.value)} />
+              <p className="text-[10px] text-gray-500 mt-1">Cole um link de imagem do Google ou LinkedIn aqui.</p>
             </div>
+
             {profileMsg && <p className="text-sm font-bold text-emerald-400">{profileMsg}</p>}
+            
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-bold transition">
-              Salvar Dados
+              Salvar Alterações
             </button>
           </form>
         </div>
 
-        {/* CARTÃO 2: SEGURANÇA */}
+        {/* Cartão 2: Segurança */}
         <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
           <h2 className="text-xl font-bold mb-4">🔐 Segurança</h2>
           <form onSubmit={handleChangePassword} className="space-y-4">
@@ -140,66 +123,16 @@ export default function ProfilePage() {
                 value={newPass} onChange={e => setNewPass(e.target.value)} />
             </div>
             {passMsg && <p className="text-sm font-bold">{passMsg}</p>}
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 py-2 rounded font-bold">
+            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 py-2 rounded font-bold transition">
               Atualizar Senha
             </button>
           </form>
+
           <div className="mt-8 border-t border-gray-700 pt-4">
              <button onClick={() => signOut()} className="w-full border border-red-500 text-red-400 hover:bg-red-500/10 py-2 rounded transition">
                 Sair do Sistema
              </button>
           </div>
-        </div>
-
-        {/* CARTÃO 3: CRIAR NOVO USUÁRIO (CADASTRAR EQUIPE) */}
-        <div className="col-span-1 md:col-span-2 bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <h2 className="text-xl font-bold mb-4">👥 Cadastrar Novo Membro</h2>
-          <p className="text-xs text-gray-500 mb-4">Adicione membros à sua equipe.</p>
-          
-          <form onSubmit={handleCreateUser} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-sm text-gray-400">Nome</label>
-                    <input type="text" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                        value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
-                </div>
-                <div>
-                    <label className="block text-sm text-gray-400">Email</label>
-                    <input type="email" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                        value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                    <label className="block text-sm text-gray-400">Senha Inicial</label>
-                    <input type="text" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                        value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
-                </div>
-                <div>
-                    <label className="block text-sm text-gray-400">Cargo</label>
-                    <select className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1 h-[42px]"
-                        value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
-                        <option value="AGENT">Agente</option>
-                        <option value="ADMIN">Admin</option>
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm text-gray-400">Setor</label>
-                    <select className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1 h-[42px]"
-                        value={newUser.department} onChange={e => setNewUser({...newUser, department: e.target.value})}>
-                        {DEPARTMENTS.map(dept => (
-                            <option key={dept} value={dept}>{dept}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-
-            {userMsg && <p className="text-sm font-bold">{userMsg}</p>}
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-bold transition">
-              Criar Usuário
-            </button>
-          </form>
         </div>
 
       </div>

@@ -1,16 +1,39 @@
 // app/page.tsx
 import { prisma } from '@/lib/prisma';
 import DashboardClient from './components/dashboard-client';
+import { getServerSession } from "next-auth";
+import { authOptions } from "./api/auth/[...nextauth]/route";
 
 export const dynamic = 'force-dynamic';
 
-// O Next.js entrega os parametros da URL (searchParams) aqui
 export default async function Dashboard(props: { searchParams: Promise<{ chatId?: string }> }) {
   const searchParams = await props.searchParams;
   const selectedChatId = searchParams.chatId;
 
-  // 1. Busca lista de Chats (Sidebar)
+  // 1. Pega a sessão do usuário logado
+  const session = await getServerSession(authOptions);
+  
+  // Se não tiver sessão (erro raro), redireciona ou usa valores padrão
+  const userRole = (session?.user as any)?.role || 'AGENT';
+  const userDept = (session?.user as any)?.department || 'GERAL';
+
+  // 2. Define o Filtro de Segurança
+  let whereCondition: any = {};
+
+  if (userRole !== 'ADMIN') {
+    // Se NÃO for Admin, vê apenas o próprio setor OU Geral
+    whereCondition = {
+      OR: [
+        { department: userDept },
+        { department: 'GERAL' } // Agentes também veem o que caiu na triagem
+      ]
+    };
+  }
+  // Se for ADMIN, o whereCondition fica vazio ({}) e pega tudo.
+
+  // 3. Busca lista de Chats (COM O FILTRO)
   const chats = await prisma.chat.findMany({
+    where: whereCondition, // <--- APLICA O FILTRO AQUI
     include: {
       messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       _count: { 
@@ -19,26 +42,33 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
         } 
       }
     },
-    orderBy: { lastMessageAt: 'desc' }, // <--- AQUI A MÁGICA
+    orderBy: { lastMessageAt: 'desc' },
   });
 
-  // 2. Se tiver um ID na URL, busca a conversa completa
+  // 4. Se tiver um ID na URL, busca a conversa (Verifica se ele tem permissão de ver essa também)
   let selectedChat = null;
   if (selectedChatId) {
-    selectedChat = await prisma.chat.findUnique({
-      where: { id: selectedChatId },
+    selectedChat = await prisma.chat.findFirst({
+      where: { 
+        id: selectedChatId,
+        ...whereCondition // <--- Garante que ele não acesse chat de outro setor pela URL
+      },
       include: {
-        messages: { orderBy: { createdAt: 'asc' } } // Histórico completo
+        messages: { orderBy: { createdAt: 'asc' } }
       }
     });
   }
 
-  // 3. Dados dos Gráficos (Dashboard)
+  // 5. Dados dos Gráficos (Também filtrados para não "vazar" números de outros setores)
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  
   const recentMessages = await prisma.message.findMany({
     select: { createdAt: true },
-    where: { createdAt: { gte: sevenDaysAgo } }
+    where: { 
+      createdAt: { gte: sevenDaysAgo },
+      chat: whereCondition // <--- Filtra as mensagens pelo setor do chat
+    }
   });
 
   const chartDataMap = new Map();
@@ -63,7 +93,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
       chats={chats}
       chartData={chartData}
       kpi={{ totalClients, totalMessages, activeNow }}
-      selectedChat={selectedChat} // Passa o chat selecionado (se houver)
+      selectedChat={selectedChat}
     />
   );
 }

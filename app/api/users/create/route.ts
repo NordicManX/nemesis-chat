@@ -5,15 +5,14 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(req: Request) {
   try {
-    const { name, email, password, role } = await req.json();
+    // Agora recebemos também o 'department'
+    const { name, email, password, role, department } = await req.json();
 
-    // Verifica se já existe
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
       return NextResponse.json({ error: 'Este email já está cadastrado.' }, { status: 400 });
     }
 
-    // Cria o novo agente
     const hashedPassword = await bcrypt.hash(password, 10);
     
     const newUser = await prisma.user.create({
@@ -21,7 +20,8 @@ export async function POST(req: Request) {
         name,
         email,
         password: hashedPassword,
-        role: role || 'AGENT', // Se não especificar, cria como Agente normal
+        role: role || 'AGENT',
+        department: department || 'GERAL', // Se não informar, cai no Geral
       }
     });
 
