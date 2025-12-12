@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 
+
 // Isso diz ao Next.js para não guardar cache dessa página (sempre mostrar dados novos)
 export const dynamic = 'force-dynamic';
 
@@ -24,9 +25,14 @@ export default async function Dashboard() {
           <h1 className="text-3xl font-bold text-emerald-400">Nemesis Chat</h1>
           <p className="text-gray-400">Painel de Controle em Tempo Real</p>
         </div>
-        <div className="bg-gray-800 px-4 py-2 rounded-lg">
-          <span className="text-emerald-400 font-bold">{chats.length}</span> Clientes
-        </div>
+       <div className="flex gap-4 items-center">
+  <Link href="/profile" className="text-gray-300 hover:text-white font-medium text-sm border border-gray-600 px-3 py-2 rounded-lg hover:bg-gray-800 transition">
+    ⚙️ Configurações
+  </Link>
+  <div className="bg-gray-800 px-4 py-2 rounded-lg">
+    <span className="text-emerald-400 font-bold">{chats.length}</span> Clientes
+  </div>
+</div>
       </header>
 
       {/* Grid de Cards */}
