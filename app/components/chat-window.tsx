@@ -63,26 +63,22 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   }
 
   // Função de Download
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!selectedImage) return;
+
     try {
-        // Busca a imagem como um "blob" (arquivo bruto)
-        const response = await fetch(selectedImage);
-        const blob = await response.blob();
-        // Cria um link temporário no navegador
-        const url = window.URL.createObjectURL(blob);
+        // Cria um link invisível que aponta para a NOSSA API de download
         const link = document.createElement('a');
-        link.href = url;
-        // Define o nome do arquivo (usando timestamp para ser único)
-        link.download = `nemesis-img-${Date.now()}.jpg`; 
+        // Passamos a URL do telegram como parâmetro para nossa ponte
+        link.href = `/api/chat/download?url=${encodeURIComponent(selectedImage)}`;
+        link.setAttribute('download', ''); // Reforça o pedido de download
         document.body.appendChild(link);
-        link.click(); // Clica no link virtualmente
-        document.body.removeChild(link); // Limpa a bagunça
-        window.URL.revokeObjectURL(url);
+        link.click(); // Clica automaticamente
+        document.body.removeChild(link); // Limpa
     } catch (error) {
-        console.error('Erro ao baixar imagem:', error);
-        alert("Erro ao tentar baixar a imagem.");
+        console.error('Erro ao baixar:', error);
+        alert("Erro ao iniciar o download.");
     }
   };
 
