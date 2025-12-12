@@ -21,9 +21,11 @@ model Chat {
 
 model Message {
   id        String   @id @default(cuid())
-  content   String
+  content   String?  
   sender    String   
-  isRead    Boolean  @default(false) 
+  type      String   @default("TEXT") 
+  mediaUrl  String?  
+  isRead    Boolean  @default(false)
   chatId    String
   chat      Chat     @relation(fields: [chatId], references: [id])
   createdAt DateTime @default(now())
