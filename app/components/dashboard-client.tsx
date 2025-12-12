@@ -21,7 +21,6 @@ interface DashboardProps {
 }
 
 export default function DashboardClient({ chats, kpi, chartData, selectedChat }: DashboardProps) {
-  // --- LÓGICA DE RESIZE (Só funciona no Desktop) ---
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -45,7 +44,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
     };
   }, [resize, stopResizing]);
 
-  // --- MARCAR COMO LIDO ---
   useEffect(() => {
     if (selectedChat) {
       fetch('/api/chat/read', {
@@ -59,13 +57,11 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
-      {!selectedChat && <AutoRefresh />}
+      {/* --- CORREÇÃO AQUI: REMOVEMOS A CONDIÇÃO --- */}
+      {/* Agora ele atualiza sempre, garantindo que as msgs cheguem dentro do chat */}
+      <AutoRefresh />
 
-      {/* --- SIDEBAR (Lista de Conversas) --- */}
-      {/* Lógica Responsiva:
-          - Mobile (padrão): Se tem chat selecionado, esconde a sidebar ('hidden'). Se não tem, mostra full width ('w-full').
-          - Desktop (md): Sempre mostra ('md:flex'), usa a largura configurável.
-      */}
+      {/* --- SIDEBAR --- */}
       <aside 
         ref={sidebarRef}
         className={`
@@ -128,7 +124,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
            </Link>
         </div>
 
-        {/* Resizer só aparece no Desktop (hidden no mobile) */}
         <div 
           onMouseDown={startResizing} 
           className="hidden md:flex absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-emerald-500 transition-colors z-50 items-center justify-center group"
@@ -137,21 +132,14 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
         </div>
       </aside>
 
-      {/* --- ÁREA PRINCIPAL (Chat ou Dashboard) --- */}
-      {/* Lógica Responsiva:
-          - Mobile: Se NÃO tem chat, esconde main ('hidden'). Se tem chat, mostra full ('flex w-full').
-          - Desktop: Sempre mostra ('md:flex').
-      */}
+      {/* --- ÁREA PRINCIPAL --- */}
       <main className={`
         flex-col h-screen overflow-hidden bg-gray-950 flex-1
         ${selectedChat ? 'flex w-full' : 'hidden md:flex'}
       `}>
-        
         {selectedChat ? (
-          // VISÃO DE CHAT
           <ChatWindow chat={selectedChat} initialMessages={selectedChat.messages} />
         ) : (
-          // VISÃO DE DASHBOARD (Gráficos)
           <>
             <header className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-8 bg-gray-900 flex-shrink-0">
               <h2 className="text-lg font-semibold text-gray-200">Visão Geral</h2>
@@ -165,7 +153,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
             </header>
 
             <div className="flex-1 overflow-y-auto p-4 md:p-8">
-              {/* KPIs com Grid Responsivo (1 coluna mobile, 4 desktop) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
                    <div className="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><Users size={20} /></div>
@@ -185,7 +172,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
                 </div>
               </div>
 
-              {/* Gráfico */}
               <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 md:p-6 mb-8">
                  <MetricsChart data={chartData} />
               </div>
