@@ -34,9 +34,28 @@ const handler = NextAuth({
     })
   ],
   pages: {
-    signIn: '/auth/login', 
+    signIn: '/auth/login',
   },
-  session: { strategy: "jwt" },
+  
+  // Configurações de sessão
+  session: {
+    strategy: "jwt",
+    maxAge: 30 * 60, // 30 minutos (em segundos). O login expira rápido.
+  },
+  // Opcional: Para tentar forçar limpeza ao fechar o navegador
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      }
+    }
+  },
+  // ---------------------------
+
   secret: process.env.NEXTAUTH_SECRET,
 });
 
