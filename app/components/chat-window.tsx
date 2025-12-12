@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, X, ArrowLeft, Check, Briefcase } from 'lucide-react';
+import { Send, X, ArrowLeft, Check, Briefcase } from 'lucide-react'; // <--- Briefcase voltou!
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -17,28 +17,34 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const [messages, setMessages] = useState(initialMessages);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
+  
+  // Estado do Departamento (garante que comece com o valor do banco ou GERAL)
   const [department, setDepartment] = useState(chat.department || "GERAL");
+  
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Rola para baixo ao chegar mensagem
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Atualiza estados ao trocar de chat
   useEffect(() => {
     setMessages(initialMessages);
-    setDepartment(chat.department || "GERAL"); // Atualiza se mudar de chat
+    setDepartment(chat.department || "GERAL");
   }, [initialMessages, chat]);
 
-  // Função para trocar setor
+  // Função para trocar setor (Restaurada!)
   async function handleChangeDepartment(newDept: string) {
     setDepartment(newDept);
+    // Chama a API para salvar e avisar o cliente
     await fetch('/api/chat/department', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatId: chat.id, department: newDept }),
     });
-    router.refresh();
+    router.refresh(); // Atualiza a dashboard para refletir a mudança
   }
 
   async function handleSend(e: React.FormEvent) {
@@ -75,19 +81,25 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       {/* Cabeçalho do Chat */}
       <div className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-6 bg-gray-900 flex-shrink-0">
         <div className="flex items-center gap-3">
+          
+          {/* BOTÃO VOLTAR (Mobile) */}
           <Link href="/" className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white">
             <ArrowLeft size={20} />
           </Link>
 
           <div>
-            <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">{chat.customerName}</h2>
-            {/* Seletor de Departamento */}
-            <div className="flex items-center gap-1 text-xs text-emerald-400 cursor-pointer group relative">
+            <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">
+              {chat.customerName}
+            </h2>
+            
+            {/* SELETOR DE DEPARTAMENTO (RESTAURADO) */}
+            <div className="flex items-center gap-1 text-xs text-emerald-400 cursor-pointer group relative mt-0.5">
                 <Briefcase size={12} />
                 <select 
                     value={department}
                     onChange={(e) => handleChangeDepartment(e.target.value)}
-                    className="bg-transparent border-none focus:ring-0 p-0 text-xs font-medium cursor-pointer uppercase hover:text-white transition"
+                    className="bg-transparent border-none focus:ring-0 p-0 text-xs font-medium cursor-pointer uppercase hover:text-white transition outline-none appearance-none pr-4"
+                    title="Mudar Setor"
                 >
                     {DEPARTMENTS.map(dept => (
                         <option key={dept} value={dept} className="bg-gray-800 text-white">
@@ -95,10 +107,14 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
                         </option>
                     ))}
                 </select>
+                {/* Setinha visual pequena para indicar dropdown */}
+                <span className="pointer-events-none absolute right-0 top-0.5 text-[8px] opacity-70">▼</span>
             </div>
+
           </div>
         </div>
 
+        {/* Botão Fechar (Desktop) */}
         <Link href="/" className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white" title="Fechar Conversa">
            <X size={20} />
         </Link>
@@ -106,11 +122,12 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
 
       {/* Área de Mensagens */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scrollbar">
-        {/* Aviso de Início */}
-        <div className="text-center py-4">
-            <span className="bg-gray-800 text-gray-500 text-[10px] px-3 py-1 rounded-full uppercase">
-                Setor: {department}
-            </span>
+        
+        {/* Aviso visual do Setor Atual */}
+        <div className="text-center py-2 opacity-50">
+           <span className="text-[10px] uppercase tracking-wider border border-gray-700 px-2 py-1 rounded-full">
+             Setor Atual: {department}
+           </span>
         </div>
 
         {messages.map((msg: any) => (
