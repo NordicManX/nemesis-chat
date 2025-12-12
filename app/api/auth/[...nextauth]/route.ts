@@ -4,7 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
-// Detecta se estamos em produção (Vercel) para usar cookies seguros
+// Detecta se está em produção (Vercel) para usar cookies seguros
 const useSecureCookies = process.env.NODE_ENV === 'production';
 const cookiePrefix = useSecureCookies ? '__Secure-' : '';
 
@@ -48,8 +48,8 @@ export const authOptions: AuthOptions = {
     maxAge: 30 * 60, 
   },
 
-  // --- O SEGREDO ESTÁ AQUI ---
-  // Sobrescrevemos o cookie padrão para tentar forçar o comportamento de "Sessão"
+  
+  // Sobrescrevido o cookie padrão para tentar forçar o comportamento de "Sessão"
   cookies: {
     sessionToken: {
       name: `${cookiePrefix}next-auth.session-token`,
@@ -63,7 +63,7 @@ export const authOptions: AuthOptions = {
       }
     }
   },
-  // ---------------------------
+  
 
   secret: process.env.NEXTAUTH_SECRET,
 };
