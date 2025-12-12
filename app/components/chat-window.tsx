@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-// Adicionei Paperclip e FileText
 import { Send, X, ArrowLeft, Check, Briefcase, Maximize2, ZoomIn, ZoomOut, Download, Paperclip, FileText } from 'lucide-react';
 import Link from 'next/link';
 
@@ -62,7 +61,16 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   // --- FUNÇÕES DE ARQUIVO ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+      const file = e.target.files[0];
+      
+      // 🚨 VALIDAÇÃO DE TAMANHO (Limite Vercel: 4.5MB, colocamos 4MB por segurança)
+      if (file.size > 4 * 1024 * 1024) {
+        alert("⚠️ O arquivo é muito grande! O limite para envio é de 4MB.");
+        e.target.value = ''; // Limpa o input
+        return;
+      }
+      
+      setSelectedFile(file);
     }
   };
 
@@ -74,46 +82,53 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   // --- ENVIO ---
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!newMessage.trim() && !selectedFile) return; // Não envia se estiver tudo vazio
+    if (!newMessage.trim() && !selectedFile) return;
 
     setSending(true);
 
-    // Envio Otimista (Mostra na tela antes de confirmar)
-    const tempMsg = {
-      id: 'temp-' + Date.now(),
-      content: newMessage || (selectedFile ? (selectedFile.type.startsWith('image/') ? '📷 Enviando imagem...' : '📎 Enviando arquivo...') : ''),
-      sender: 'AGENT',
-      type: selectedFile ? (selectedFile.type.startsWith('image/') ? 'IMAGE' : 'DOCUMENT') : 'TEXT',
-      // Se for imagem, tenta criar preview local
-      mediaUrl: selectedFile && selectedFile.type.startsWith('image/') ? URL.createObjectURL(selectedFile) : null,
-      createdAt: new Date().toISOString()
-    };
-    
-    setMessages((prev) => [...prev, tempMsg]);
-    
     // Preparando o FormData
     const formData = new FormData();
     formData.append('chatId', chat.id);
     if (newMessage) formData.append('content', newMessage);
     if (selectedFile) formData.append('file', selectedFile);
 
-    // Limpa UI imediatamente
-    const msgContentToSend = newMessage;
-    setNewMessage('');
-    setSelectedFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-
     try {
-      // Importante: NÃO setar Content-Type header manualmente quando usa FormData, o navegador faz isso.
       const res = await fetch('/api/chat/send', {
         method: 'POST',
         body: formData, 
       });
-      if (res.ok) router.refresh();
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Erro no envio");
+      }
+
+      // SUCESSO: Agora sim limpamos a tela e adicionamos a mensagem visualmente
+      // Envio Otimista (Visual)
+      const tempMsg = {
+        id: 'temp-' + Date.now(),
+        content: newMessage || (selectedFile ? (selectedFile.type.startsWith('image/') ? '📷 Imagem enviada' : '📎 Arquivo enviado') : ''),
+        sender: 'AGENT',
+        type: selectedFile ? (selectedFile.type.startsWith('image/') ? 'IMAGE' : 'DOCUMENT') : 'TEXT',
+        mediaUrl: selectedFile && selectedFile.type.startsWith('image/') ? URL.createObjectURL(selectedFile) : null,
+        createdAt: new Date().toISOString()
+      };
+      
+      setMessages((prev) => [...prev, tempMsg]);
+
+      // Limpa os inputs
+      setNewMessage('');
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      
+      router.refresh();
+
     } catch (error) {
       console.error("Erro ao enviar", error);
+      alert("❌ Falha ao enviar mensagem. Verifique se o arquivo não excede 4MB.");
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   }
 
   async function handleChangeDepartment(newDept: string) {
@@ -129,7 +144,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   return (
     <div className="flex flex-col h-full bg-gray-950 w-full relative">
       
-      {/* MODAL DE IMAGEM (Código anterior) */}
+      {/* MODAL DE IMAGEM */}
       {selectedImage && (
         <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col backdrop-blur-sm animate-fade-in" onClick={closeImageModal}>
           <div className="flex justify-end items-center p-4 gap-2 bg-gradient-to-b from-black/50 to-transparent z-[110]" onClick={e => e.stopPropagation()}>
@@ -201,7 +216,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
 
       {/* ÁREA DE INPUT DE ARQUIVO (VISUALIZAÇÃO DE UPLOAD) */}
       {selectedFile && (
-        <div className="px-4 py-2 bg-gray-900 border-t border-gray-800 flex items-center gap-3">
+        <div className="px-4 py-2 bg-gray-900 border-t border-gray-800 flex items-center gap-3 animate-fade-in">
             <div className="relative">
                 {selectedFile.type.startsWith('image/') ? (
                     <img src={URL.createObjectURL(selectedFile)} alt="Preview" className="h-12 w-12 object-cover rounded-lg border border-gray-600" />
@@ -220,21 +235,9 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       {/* FORMULÁRIO DE ENVIO */}
       <div className="p-3 md:p-4 bg-gray-900 border-t border-gray-800">
         <form onSubmit={handleSend} className="flex gap-2 items-end">
-          {/* Input de Arquivo (Escondido) */}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileSelect} 
-            className="hidden" 
-          />
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
           
-          {/* Botão de Clips */}
-          <button 
-            type="button" 
-            onClick={() => fileInputRef.current?.click()}
-            className="p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-xl transition mb-[1px]"
-            title="Anexar arquivo"
-          >
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-xl transition mb-[1px]" title="Anexar arquivo (Máx 4MB)">
             <Paperclip size={20} />
           </button>
 
@@ -246,8 +249,12 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
             className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 text-white"
             disabled={sending}
           />
-          <button type="submit" disabled={sending || (!newMessage.trim() && !selectedFile)} className="bg-emerald-600 hover:bg-emerald-500 p-3 rounded-xl text-white transition disabled:opacity-50 mb-[1px]">
-            <Send size={20} />
+          <button 
+            type="submit" 
+            disabled={sending || (!newMessage.trim() && !selectedFile)} 
+            className={`bg-emerald-600 hover:bg-emerald-500 p-3 rounded-xl text-white transition mb-[1px] ${sending ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {sending ? <span className="animate-spin">⌛</span> : <Send size={20} />}
           </button>
         </form>
       </div>
