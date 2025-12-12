@@ -1,80 +1,44 @@
 // app/api/webhook/route.ts
-
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-// Evita criar múltiplas instâncias do Prisma no hot-reload
-
-const globalForPrisma = global as unknown as { prisma: PrismaClient };
-const prisma = globalForPrisma.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
-
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+import { prisma } from '@/lib/prisma';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const update = await req.json();
 
-    // Verifica se é uma mensagem de texto válida
-
-    if (body.message && body.message.text) {
-      const { chat, from, text } = body.message;
+    if (update.message && update.message.text) {
+      const { from, chat, text } = update.message;
       const telegramId = chat.id.toString();
-      const customerName = from.first_name || "Sem Nome";
+      const customerName = from.first_name + (from.last_name ? ` ${from.last_name}` : '');
 
-      console.log(`📩 Mensagem de ${customerName}: ${text}`);
-
-      // 1. Procura se esse cliente já existe no banco
-
-      let chatRecord = await prisma.chat.findUnique({
+      // 1. Garante que o Chat existe E atualiza a data da última mensagem
+      const chatRecord = await prisma.chat.upsert({
         where: { telegramId },
+        update: { 
+          customerName,
+          lastMessageAt: new Date() // <--- ATUALIZA A HORA SEMPRE QUE CHEGAR MSG
+        }, 
+        create: {
+          telegramId,
+          customerName,
+          lastMessageAt: new Date()
+        },
       });
 
-      // Se não existe, cria um novo
-
-      if (!chatRecord) {
-        console.log("🆕 Novo cliente detectado! Criando registro...");
-        chatRecord = await prisma.chat.create({
-          data: { 
-            telegramId, 
-            customerName 
-          },
-        });
-      }
-
-      // 2. Salva a mensagem na tabela Message
-
+      // 2. Salva a mensagem
       await prisma.message.create({
         data: {
           content: text,
-          sender: 'CUSTOMER', // Marca que foi o cliente que mandou
+          sender: 'CUSTOMER',
           chatId: chatRecord.id,
+          isRead: false,
         },
-      });
-      
-      console.log("💾 Mensagem salva no banco!");
-
-      // 3. (Opcional) Manda um "recebido" de volta pro Telegram
-      // Isso ajuda a saber se funcionou sem olhar o banco
-      
-      await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: telegramId,
-          text: "🤖 Bot: Recebi sua mensagem e salvei no sistema!",
-        }),
       });
     }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('❌ Erro no webhook:', error);
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+    console.error('Erro:', error);
+    return NextResponse.json({ error: 'Erro' }, { status: 500 });
   }
-}
-
-// O Telegram as vezes manda um GET para testar se a URL existe
-export async function GET() {
-  return NextResponse.json({ status: "Webhook Online 🚀" });
 }

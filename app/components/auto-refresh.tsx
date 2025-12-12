@@ -11,7 +11,7 @@ export default function AutoRefresh() {
     // Configura o intervalo para 10 segundos (10000 ms)
     const interval = setInterval(() => {
       router.refresh(); // Recarrega os dados do servidor (Server Components)
-    }, 10000);
+    }, 3000);
 
     // Limpa o intervalo se o usuário sair da página
     return () => clearInterval(interval);

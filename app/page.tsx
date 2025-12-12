@@ -13,9 +13,13 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   const chats = await prisma.chat.findMany({
     include: {
       messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-      _count: { select: { messages: true } }
+      _count: { 
+        select: { 
+          messages: { where: { isRead: false, sender: 'CUSTOMER' } } 
+        } 
+      }
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { lastMessageAt: 'desc' }, // <--- AQUI A MÁGICA
   });
 
   // 2. Se tiver um ID na URL, busca a conversa completa

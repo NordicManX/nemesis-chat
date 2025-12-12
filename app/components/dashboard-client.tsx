@@ -6,17 +6,22 @@ import Link from 'next/link';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import AutoRefresh from './auto-refresh';
-import ChatWindow from './chat-window'; // <--- IMPORTAMOS O CHAT
+import ChatWindow from './chat-window';
 import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings } from 'lucide-react';
 
 interface DashboardProps {
   chats: any[];
-  kpi: any;
+  kpi: {
+    totalClients: number;
+    totalMessages: number;
+    activeNow: number;
+  };
   chartData: any[];
-  selectedChat?: any; // <--- PROPRIEDADE NOVA (Chat Selecionado)
+  selectedChat?: any;
 }
 
 export default function DashboardClient({ chats, kpi, chartData, selectedChat }: DashboardProps) {
+  // --- LÓGICA DE RESIZE (Só funciona no Desktop) ---
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -40,16 +45,35 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
     };
   }, [resize, stopResizing]);
 
+  // --- MARCAR COMO LIDO ---
+  useEffect(() => {
+    if (selectedChat) {
+      fetch('/api/chat/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: selectedChat.id })
+      }).catch(err => console.error("Erro ao marcar lido:", err));
+    }
+  }, [selectedChat]);
+
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
-      {/* Se estiver com chat aberto, paramos o refresh automático para não atrapalhar a digitação */}
+      
       {!selectedChat && <AutoRefresh />}
 
-      {/* --- SIDEBAR FIXA --- */}
+      {/* --- SIDEBAR (Lista de Conversas) --- */}
+      {/* Lógica Responsiva:
+          - Mobile (padrão): Se tem chat selecionado, esconde a sidebar ('hidden'). Se não tem, mostra full width ('w-full').
+          - Desktop (md): Sempre mostra ('md:flex'), usa a largura configurável.
+      */}
       <aside 
         ref={sidebarRef}
-        className="flex flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0"
-        style={{ width: sidebarWidth }}
+        className={`
+          flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0
+          ${selectedChat ? 'hidden md:flex' : 'flex w-full'} 
+          md:w-auto
+        `}
+        style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? sidebarWidth : '100%' }}
       >
         <div className="p-4 border-b border-gray-800">
           <h1 className="text-xl font-bold text-emerald-400 mb-4 truncate">Nemesis Chat</h1>
@@ -63,7 +87,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
           {chats.map((chat) => (
             <Link 
               key={chat.id} 
-              // O TRUQUE: Agora o link é para a mesma página, só muda o parametro ?chatId
               href={`/?chatId=${chat.id}`} 
               className={`block p-4 transition border-b border-gray-800/50 group ${
                 selectedChat?.id === chat.id ? 'bg-gray-800 border-l-4 border-l-emerald-500' : 'hover:bg-gray-800/50'
@@ -82,14 +105,16 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
                   {chat.messages[0]?.sender === 'AGENT' && <span className="text-emerald-500 mr-1">Você:</span>}
                   {chat.messages[0]?.content || 'Nenhuma mensagem'}
                 </p>
-                {chat._count.messages > 0 && (
-                  <span className="bg-gray-700 text-gray-300 text-[10px] px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0">
+                {/* Bolinha Azul */}
+                {chat._count.messages > 0 && chat.id !== selectedChat?.id && (
+                  <span className="bg-sky-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0 shadow-sm shadow-sky-900/50">
                     {chat._count.messages}
                   </span>
                 )}
               </div>
             </Link>
           ))}
+          {chats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Sem conversas.</div>}
         </div>
 
         <div className="p-4 border-t border-gray-800 bg-gray-900">
@@ -103,36 +128,45 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
            </Link>
         </div>
 
-        <div onMouseDown={startResizing} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-emerald-500 transition-colors z-50 flex items-center justify-center group">
+        {/* Resizer só aparece no Desktop (hidden no mobile) */}
+        <div 
+          onMouseDown={startResizing} 
+          className="hidden md:flex absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-emerald-500 transition-colors z-50 items-center justify-center group"
+        >
             <div className="h-8 w-1 bg-gray-600 rounded-full group-hover:bg-white transition-colors opacity-0 group-hover:opacity-100" />
         </div>
       </aside>
 
-
-      {/* --- ÁREA PRINCIPAL (DINÂMICA) --- */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-gray-950 min-w-[400px]">
+      {/* --- ÁREA PRINCIPAL (Chat ou Dashboard) --- */}
+      {/* Lógica Responsiva:
+          - Mobile: Se NÃO tem chat, esconde main ('hidden'). Se tem chat, mostra full ('flex w-full').
+          - Desktop: Sempre mostra ('md:flex').
+      */}
+      <main className={`
+        flex-col h-screen overflow-hidden bg-gray-950 flex-1
+        ${selectedChat ? 'flex w-full' : 'hidden md:flex'}
+      `}>
         
-        {/* LÓGICA DE EXIBIÇÃO: CHAT OU DASHBOARD? */}
         {selectedChat ? (
-          // SE TIVER CHAT SELECIONADO: MOSTRA A CONVERSA
+          // VISÃO DE CHAT
           <ChatWindow chat={selectedChat} initialMessages={selectedChat.messages} />
         ) : (
-          // SE NÃO: MOSTRA A DASHBOARD PADRÃO
+          // VISÃO DE DASHBOARD (Gráficos)
           <>
-            <header className="h-16 border-b border-gray-800 flex items-center justify-between px-8 bg-gray-900 flex-shrink-0">
+            <header className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-8 bg-gray-900 flex-shrink-0">
               <h2 className="text-lg font-semibold text-gray-200">Visão Geral</h2>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 md:gap-3">
                 <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition text-sm font-medium border border-transparent hover:border-gray-700">
-                  <Settings size={18} /> Config
+                  <Settings size={18} /> <span className="hidden md:inline">Config</span>
                 </Link>
                 <div className="h-6 w-px bg-gray-800 mx-1"></div>
                 <LogoutButton />
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-8">
-              {/* KPIs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div className="flex-1 overflow-y-auto p-4 md:p-8">
+              {/* KPIs com Grid Responsivo (1 coluna mobile, 4 desktop) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
                    <div className="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><Users size={20} /></div>
                    <div><p className="text-gray-500 text-[10px] uppercase font-bold">Clientes</p><h3 className="text-xl font-bold">{kpi.totalClients}</h3></div>
@@ -141,15 +175,22 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
                    <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg"><MessageSquare size={20} /></div>
                    <div><p className="text-gray-500 text-[10px] uppercase font-bold">Mensagens</p><h3 className="text-xl font-bold">{kpi.totalMessages}</h3></div>
                 </div>
-                {/* ... Outros KPIs iguais ... */}
+                <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
+                  <div className="p-3 bg-orange-500/10 text-orange-400 rounded-lg"><Activity size={20} /></div>
+                  <div><p className="text-gray-500 text-[10px] uppercase font-bold">Ativos 24h</p><h3 className="text-xl font-bold">{kpi.activeNow}</h3></div>
+                </div>
+                <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
+                  <div className="p-3 bg-purple-500/10 text-purple-400 rounded-lg"><Clock size={20} /></div>
+                  <div><p className="text-gray-500 text-[10px] uppercase font-bold">Status</p><h3 className="text-lg font-bold text-emerald-500">Online</h3></div>
+                </div>
               </div>
 
               {/* Gráfico */}
-              <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-8">
+              <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 md:p-6 mb-8">
                  <MetricsChart data={chartData} />
               </div>
 
-              <div className="text-center py-20 opacity-30">
+              <div className="text-center py-20 opacity-30 hidden md:block">
                 <MessageSquare size={64} className="mx-auto mb-6 text-gray-600"/>
                 <p className="text-xl font-medium text-gray-500">Pronto para atender!</p>
                 <p className="text-sm text-gray-600 mt-2">Selecione uma conversa na lateral esquerda.</p>
