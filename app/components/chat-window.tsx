@@ -3,8 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-// Importei o ícone Maximize2 para indicar que dá pra ampliar (opcional)
-import { Send, X, ArrowLeft, Check, Briefcase, Maximize2 } from 'lucide-react';
+// --- NOVOS ÍCONES IMPORTADOS AQUI ---
+import { Send, X, ArrowLeft, Check, Briefcase, Maximize2, ZoomIn, ZoomOut, Download } from 'lucide-react';
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -20,8 +20,9 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const [sending, setSending] = useState(false);
   const [department, setDepartment] = useState(chat.department || "GERAL");
   
-  // --- NOVO ESTADO: Guarda a URL da imagem que está aberta em tela cheia ---
+  // --- ESTADOS DO MODAL DE IMAGEM ---
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1); // Começa em 1x (100%)
 
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -34,6 +35,57 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     setMessages(initialMessages);
     setDepartment(chat.department || "GERAL");
   }, [initialMessages, chat]);
+
+  // --- FUNÇÕES DE CONTROLE DO MODAL ---
+
+  // Abre o modal e reseta o zoom
+  const openImageModal = (url: string) => {
+      setSelectedImage(url);
+      setZoomLevel(1);
+  }
+
+  // Fecha o modal
+  const closeImageModal = () => {
+      setSelectedImage(null);
+      setZoomLevel(1);
+  }
+
+  // Aumenta Zoom (Máximo 3x)
+  const handleZoomIn = (e: React.MouseEvent) => {
+      e.stopPropagation(); // Impede fechar o modal
+      setZoomLevel(prev => Math.min(prev + 0.5, 3));
+  }
+
+  // Diminui Zoom (Mínimo 0.5x)
+  const handleZoomOut = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setZoomLevel(prev => Math.max(prev - 0.5, 0.5));
+  }
+
+  // Função de Download
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedImage) return;
+    try {
+        // Busca a imagem como um "blob" (arquivo bruto)
+        const response = await fetch(selectedImage);
+        const blob = await response.blob();
+        // Cria um link temporário no navegador
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        // Define o nome do arquivo (usando timestamp para ser único)
+        link.download = `nemesis-img-${Date.now()}.jpg`; 
+        document.body.appendChild(link);
+        link.click(); // Clica no link virtualmente
+        document.body.removeChild(link); // Limpa a bagunça
+        window.URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Erro ao baixar imagem:', error);
+        alert("Erro ao tentar baixar a imagem.");
+    }
+  };
+
 
   async function handleChangeDepartment(newDept: string) {
     setDepartment(newDept);
@@ -75,31 +127,54 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   }
 
   return (
-    // Adicionei 'relative' aqui para o modal se posicionar corretamente
     <div className="flex flex-col h-full bg-gray-950 w-full relative">
       
-      {/* --- NOVO: O MODAL DE TELA CHEIA --- */}
-      {/* Só aparece se 'selectedImage' tiver um link */}
+      {/* --- O NOVO MODAL TURBINADO --- */}
       {selectedImage && (
         <div 
-          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm"
-          onClick={() => setSelectedImage(null)} // Fecha ao clicar no fundo preto
+          className="fixed inset-0 z-[100] bg-black/95 flex flex-col backdrop-blur-sm animate-fade-in"
+          onClick={closeImageModal} // Fecha ao clicar no fundo
         >
-          {/* Botão Fechar (X) */}
-          <button 
-            className="absolute top-4 right-4 text-white/70 hover:text-white bg-gray-800/50 rounded-full p-2 transition"
-            onClick={() => setSelectedImage(null)}
-          >
-            <X size={32} />
-          </button>
+          {/* Barra de Ferramentas (Topo) */}
+          <div className="flex justify-end items-center p-4 gap-2 bg-gradient-to-b from-black/50 to-transparent z-[110]" onClick={e => e.stopPropagation()}>
+             {/* Botão Zoom Out */}
+             <button onClick={handleZoomOut} className="text-white/70 hover:text-white bg-gray-800/80 rounded-full p-2 transition disabled:opacity-30" disabled={zoomLevel <= 0.5} title="Diminuir Zoom">
+               <ZoomOut size={24} />
+             </button>
+             {/* Indicador de Zoom */}
+             <span className="text-white/50 text-xs font-mono min-w-[40px] text-center">{Math.round(zoomLevel * 100)}%</span>
+             {/* Botão Zoom In */}
+             <button onClick={handleZoomIn} className="text-white/70 hover:text-white bg-gray-800/80 rounded-full p-2 transition disabled:opacity-30" disabled={zoomLevel >= 3} title="Aumentar Zoom">
+               <ZoomIn size={24} />
+             </button>
+             
+             <div className="h-6 w-px bg-white/20 mx-2"></div> {/* Separador */}
 
-          {/* A Imagem Grande */}
-          <img 
-            src={selectedImage} 
-            alt="Visualização em tela cheia" 
-            className="max-h-full max-w-full object-contain rounded-lg shadow-2xl cursor-default"
-            onClick={(e) => e.stopPropagation()} // Impede que clicar na imagem feche o modal
-          />
+             {/* Botão Download */}
+             <button onClick={handleDownload} className="text-white/70 hover:text-emerald-400 bg-gray-800/80 rounded-full p-2 transition" title="Baixar Imagem">
+               <Download size={24} />
+             </button>
+             
+             <div className="h-6 w-px bg-white/20 mx-2"></div> {/* Separador */}
+
+             {/* Botão Fechar */}
+             <button onClick={closeImageModal} className="text-white/70 hover:text-red-400 bg-gray-800/80 rounded-full p-2 transition" title="Fechar">
+               <X size={24} />
+             </button>
+          </div>
+
+          {/* Área da Imagem (Com Scroll se estiver com zoom) */}
+          <div className="flex-1 overflow-auto flex items-center justify-center p-4 relative">
+            <img 
+                src={selectedImage} 
+                alt="Full screen" 
+                // APLICAMOS O ZOOM AQUI VIA CSS TRANSFORM
+                style={{ transform: `scale(${zoomLevel})` }}
+                className="max-h-full max-w-full object-contain transition-transform duration-200 ease-out cursor-grab active:cursor-grabbing shadow-2xl"
+                onClick={(e) => e.stopPropagation()} // Clicar na imagem não fecha
+                onDragStart={(e) => e.preventDefault()} // Evita arrastar o "fantasma" da imagem
+            />
+          </div>
         </div>
       )}
 
@@ -146,17 +221,16 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
               }`}
             >
               
-              {/* --- ATUALIZAÇÃO NA RENDERIZAÇÃO DA IMAGEM --- */}
+              {/* --- MINIATURA QUE ABRE O MODAL --- */}
               {msg.type === 'IMAGE' && msg.mediaUrl ? (
-                <div className="mb-1 relative group cursor-pointer" onClick={() => setSelectedImage(msg.mediaUrl)}>
+                // Usamos a nova função openImageModal
+                <div className="mb-1 relative group cursor-pointer" onClick={() => openImageModal(msg.mediaUrl)}>
                     <img 
                         src={msg.mediaUrl} 
                         alt="Enviada pelo cliente" 
-                        // Adicionei hover:opacity-90 e transition
                         className="rounded-lg max-h-[300px] w-auto border border-gray-600 transition hover:opacity-90"
                         loading="lazy"
                     />
-                    {/* Ícone de ampliar que aparece ao passar o mouse (opcional) */}
                     <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center rounded-lg">
                       <Maximize2 className="text-white drop-shadow-lg" size={24} />
                     </div>
