@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, X, ArrowLeft, Check, Briefcase } from 'lucide-react';
+// Importei o ícone Maximize2 para indicar que dá pra ampliar (opcional)
+import { Send, X, ArrowLeft, Check, Briefcase, Maximize2 } from 'lucide-react';
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -18,6 +19,10 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [department, setDepartment] = useState(chat.department || "GERAL");
+  
+  // --- NOVO ESTADO: Guarda a URL da imagem que está aberta em tela cheia ---
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +54,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       id: 'temp-' + Date.now(),
       content: newMessage,
       sender: 'AGENT',
-      type: 'TEXT', // Mensagens do agente por enquanto são só texto
+      type: 'TEXT',
       createdAt: new Date().toISOString()
     };
     setMessages((prev) => [...prev, tempMsg]);
@@ -70,7 +75,35 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 w-full">
+    // Adicionei 'relative' aqui para o modal se posicionar corretamente
+    <div className="flex flex-col h-full bg-gray-950 w-full relative">
+      
+      {/* --- NOVO: O MODAL DE TELA CHEIA --- */}
+      {/* Só aparece se 'selectedImage' tiver um link */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm"
+          onClick={() => setSelectedImage(null)} // Fecha ao clicar no fundo preto
+        >
+          {/* Botão Fechar (X) */}
+          <button 
+            className="absolute top-4 right-4 text-white/70 hover:text-white bg-gray-800/50 rounded-full p-2 transition"
+            onClick={() => setSelectedImage(null)}
+          >
+            <X size={32} />
+          </button>
+
+          {/* A Imagem Grande */}
+          <img 
+            src={selectedImage} 
+            alt="Visualização em tela cheia" 
+            className="max-h-full max-w-full object-contain rounded-lg shadow-2xl cursor-default"
+            onClick={(e) => e.stopPropagation()} // Impede que clicar na imagem feche o modal
+          />
+        </div>
+      )}
+
+      {/* Cabeçalho do Chat */}
       <div className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-6 bg-gray-900 flex-shrink-0">
         <div className="flex items-center gap-3">
           <Link href="/" className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white">
@@ -96,6 +129,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         </Link>
       </div>
 
+      {/* Área de Mensagens */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scrollbar">
         <div className="text-center py-2 opacity-50">
            <span className="text-[10px] uppercase tracking-wider border border-gray-700 px-2 py-1 rounded-full">
@@ -111,15 +145,21 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
                   : 'bg-gray-800 text-gray-200 rounded-tl-none border border-gray-700'
               }`}
             >
-              {/* LÓGICA DE EXIBIÇÃO: IMAGEM OU TEXTO */}
+              
+              {/* --- ATUALIZAÇÃO NA RENDERIZAÇÃO DA IMAGEM --- */}
               {msg.type === 'IMAGE' && msg.mediaUrl ? (
-                <div className="mb-1">
+                <div className="mb-1 relative group cursor-pointer" onClick={() => setSelectedImage(msg.mediaUrl)}>
                     <img 
                         src={msg.mediaUrl} 
                         alt="Enviada pelo cliente" 
-                        className="rounded-lg max-h-[300px] w-auto border border-gray-600"
+                        // Adicionei hover:opacity-90 e transition
+                        className="rounded-lg max-h-[300px] w-auto border border-gray-600 transition hover:opacity-90"
                         loading="lazy"
                     />
+                    {/* Ícone de ampliar que aparece ao passar o mouse (opcional) */}
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center rounded-lg">
+                      <Maximize2 className="text-white drop-shadow-lg" size={24} />
+                    </div>
                 </div>
               ) : (
                 <p>{msg.content}</p>
@@ -137,6 +177,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Input de Envio */}
       <div className="p-3 md:p-4 bg-gray-900 border-t border-gray-800">
         <form onSubmit={handleSend} className="flex gap-2">
           <input
