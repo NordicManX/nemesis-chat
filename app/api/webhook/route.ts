@@ -1,8 +1,10 @@
 // app/api/webhook/route.ts
+
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
 // Evita criar múltiplas instâncias do Prisma no hot-reload
+
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
@@ -14,6 +16,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     // Verifica se é uma mensagem de texto válida
+
     if (body.message && body.message.text) {
       const { chat, from, text } = body.message;
       const telegramId = chat.id.toString();
@@ -22,11 +25,13 @@ export async function POST(req: Request) {
       console.log(`📩 Mensagem de ${customerName}: ${text}`);
 
       // 1. Procura se esse cliente já existe no banco
+
       let chatRecord = await prisma.chat.findUnique({
         where: { telegramId },
       });
 
-      // Se não existir, cria um novo
+      // Se não existe, cria um novo
+
       if (!chatRecord) {
         console.log("🆕 Novo cliente detectado! Criando registro...");
         chatRecord = await prisma.chat.create({
@@ -38,10 +43,11 @@ export async function POST(req: Request) {
       }
 
       // 2. Salva a mensagem na tabela Message
+
       await prisma.message.create({
         data: {
           content: text,
-          sender: 'CUSTOMER', // Marcamos que foi o cliente que mandou
+          sender: 'CUSTOMER', // Marca que foi o cliente que mandou
           chatId: chatRecord.id,
         },
       });
@@ -50,6 +56,7 @@ export async function POST(req: Request) {
 
       // 3. (Opcional) Manda um "recebido" de volta pro Telegram
       // Isso ajuda a saber se funcionou sem olhar o banco
+      
       await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
