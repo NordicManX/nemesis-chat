@@ -45,7 +45,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
 
       try {
         // 👇 O TRUQUE ESTÁ AQUI: &t=${Date.now()}
-        // Isso cria um link único a cada segundo, obrigando o navegador a baixar de novo.
         const res = await fetch(`/api/chat/messages?chatId=${chat.id}&t=${Date.now()}`, {
              cache: 'no-store',
              headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
@@ -57,16 +56,13 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
           if (isMounted) {
             setMessages((prev) => {
                // LÓGICA INTELIGENTE: Só atualiza o estado se tiver novidade
-               // 1. Se a quantidade mudou
                if (newMessages.length !== prev.length) return newMessages;
                
-               // 2. Se a última mensagem mudou (confirmou envio)
                const lastPrev = prev[prev.length - 1];
                const lastNew = newMessages[newMessages.length - 1];
                
                if (lastPrev?.id !== lastNew?.id) return newMessages;
 
-               // Se estiver tudo igual, não faz nada
                return prev; 
             });
           }
@@ -76,7 +72,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       }
     };
 
-    // Roda a busca a cada 2 segundos (2000ms) - Tempo ideal
     const interval = setInterval(fetchMessages, 2000);
 
     return () => {
@@ -145,6 +140,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         return;
       }
       setSelectedFile(file);
+      // NÃO envia automaticamente aqui, apenas define o estado para o preview
     }
   };
 
@@ -167,8 +163,17 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     try {
       const res = await fetch('/api/chat/send', { method: 'POST', body: formData });
 
+      // Tratamento robusto de resposta JSON
+      const responseText = await res.text();
+      let errData;
+      try {
+          errData = JSON.parse(responseText);
+      } catch (e) {
+          // Se falhar o parse, provavelmente é erro 500/404 html
+          throw new Error("Erro de comunicação com o servidor.");
+      }
+
       if (!res.ok) {
-        const errData = await res.json();
         throw new Error(errData.error || "Erro no envio");
       }
 
@@ -184,8 +189,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       
       setMessages((prev) => [...prev, tempMsg]);
       setNewMessage('');
-      setSelectedFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      removeSelectedFile(); // Limpa o arquivo e o input após enviar
       
     } catch (error: any) {
       console.error("Erro ao enviar", error);
@@ -232,10 +236,9 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         </div>
       )}
 
-      {/* HEADER CORRIGIDO (Z-INDEX e CLICK) */}
+      {/* HEADER */}
       <div className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-6 bg-gray-900 flex-shrink-0 relative z-50 shadow-md">
         <div className="flex items-center gap-3">
-          {/* Botão Voltar Mobile Corrigido */}
           <button onClick={() => router.push('/')} className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white rounded-full active:bg-gray-800">
             <ArrowLeft size={20} />
           </button>
@@ -271,7 +274,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
           </div>
         </div>
 
-        {/* Botão Fechar Desktop Corrigido */}
         <button onClick={() => router.push('/')} className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition">
            <X size={20} />
         </button>
@@ -318,27 +320,64 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* INPUT */}
-      <div className="p-3 md:p-4 bg-gray-900 border-t border-gray-800">
-        <form onSubmit={handleSend} className="flex gap-2 items-end">
-          <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
-          
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-xl transition mb-[1px]" title="Anexar arquivo (Máx 4MB)">
-            <Paperclip size={20} />
-          </button>
+      {/* ÁREA DE INPUT E PREVIEW */}
+      <div className="bg-gray-900 border-t border-gray-800">
+        
+        {/* 👇👇👇 ÁREA DE PREVIEW DE ARQUIVO (NOVO) 👇👇👇 */}
+        {selectedFile && (
+          <div className="px-4 pt-4 pb-0 animate-slide-up">
+            <div className="relative bg-gray-800 border border-gray-700 p-2 rounded-xl flex items-center gap-3 w-fit pr-8 shadow-lg">
+              
+              {/* Mostra miniatura se for imagem, ou ícone se for arquivo */}
+              {selectedFile.type.startsWith('image/') ? (
+                 <div className="relative h-12 w-12 rounded-lg overflow-hidden border border-gray-600">
+                    <img src={URL.createObjectURL(selectedFile)} alt="Preview" className="h-full w-full object-cover" />
+                 </div>
+              ) : (
+                 <div className="h-12 w-12 bg-gray-700 rounded-lg flex items-center justify-center text-gray-400">
+                    <FileText size={24} />
+                 </div>
+              )}
 
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={selectedFile ? "Adicionar legenda..." : "Digite..."}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 text-white"
-            disabled={sending}
-          />
-          <button type="submit" disabled={sending || (!newMessage.trim() && !selectedFile)} className={`bg-emerald-600 hover:bg-emerald-500 p-3 rounded-xl text-white transition mb-[1px] ${sending ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            {sending ? <span className="animate-spin">⌛</span> : <Send size={20} />}
-          </button>
-        </form>
+              <div className="flex flex-col">
+                 <span className="text-xs font-bold text-white truncate max-w-[200px]">{selectedFile.name}</span>
+                 <span className="text-[10px] text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB</span>
+              </div>
+
+              {/* Botão de Remover (X) */}
+              <button 
+                onClick={removeSelectedFile} 
+                className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md transition"
+                title="Remover anexo"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </div>
+        )}
+        {/* 👆👆👆 FIM DO PREVIEW 👆👆👆 */}
+
+        <div className="p-3 md:p-4">
+          <form onSubmit={handleSend} className="flex gap-2 items-end">
+            <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+            
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-xl transition mb-[1px]" title="Anexar arquivo (Máx 4MB)">
+              <Paperclip size={20} />
+            </button>
+
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder={selectedFile ? "Adicionar legenda..." : "Digite..."}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 text-white"
+              disabled={sending}
+            />
+            <button type="submit" disabled={sending || (!newMessage.trim() && !selectedFile)} className={`bg-emerald-600 hover:bg-emerald-500 p-3 rounded-xl text-white transition mb-[1px] ${sending ? 'opacity-50 cursor-not-allowed' : ''}`}>
+              {sending ? <span className="animate-spin">⌛</span> : <Send size={20} />}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
