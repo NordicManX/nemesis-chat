@@ -36,17 +36,51 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const prevMsgCountRef = useRef(initialMessages.length);
 
   // ============================================================
-  // 🔥 NOVO: ATUALIZAÇÃO AUTOMÁTICA (POLLING)
+  // 🔥 ATUALIZAÇÃO VIA API (SEM RECARREGAR PÁGINA)
   // ============================================================
   useEffect(() => {
-    // Atualiza os dados da página a cada 3 segundos (3000ms)
-    const interval = setInterval(() => {
-      router.refresh(); 
-    }, 2000);
+    let isMounted = true;
 
-    // Limpa o intervalo quando o usuário sai da página
-    return () => clearInterval(interval);
-  }, [router]);
+    const fetchMessages = async () => {
+      if (!chat.id) return;
+
+      try {
+        // Busca o JSON leve da rota de API que criamos
+        const res = await fetch(`/api/chat/messages?chatId=${chat.id}`);
+        
+        if (res.ok) {
+          const newMessages = await res.json();
+          
+          if (isMounted) {
+            setMessages((prev) => {
+               // LÓGICA INTELIGENTE: Só atualiza o estado se tiver novidade
+               // 1. Se a quantidade mudou (chegou mensagem nova)
+               if (newMessages.length !== prev.length) return newMessages;
+               
+               // 2. Se a última mensagem mudou (ex: mensagem enviada foi confirmada)
+               const lastPrev = prev[prev.length - 1];
+               const lastNew = newMessages[newMessages.length - 1];
+               
+               if (lastPrev?.id !== lastNew?.id) return newMessages;
+
+               // Se estiver tudo igual, não faz nada para economizar processamento
+               return prev; 
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Erro silencioso ao buscar mensagens:", error);
+      }
+    };
+
+    // Roda a busca a cada 3 segundos (3000ms)
+    const interval = setInterval(fetchMessages, 3000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [chat.id]);
   // ============================================================
 
   // Efeito que cuida SÓ da rolagem
@@ -76,7 +110,8 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatId: chat.id, urgencyLevel: level }),
     });
-    router.refresh();
+    // Aqui mantemos o refresh pois muda dados do chat, não só mensagens
+    router.refresh(); 
   }
 
   // --- FUNÇÃO DE DOWNLOAD GENÉRICA ---
@@ -155,8 +190,9 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       setNewMessage('');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      router.refresh();
-
+      
+      // Removemos o router.refresh() daqui, pois o intervalo vai buscar a msg real em breve
+      
     } catch (error: any) {
       console.error("Erro ao enviar", error);
       alert(`❌ Erro: ${error.message || "Falha desconhecida ao enviar."}`);
