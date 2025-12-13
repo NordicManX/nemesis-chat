@@ -2,7 +2,7 @@
 import { prisma } from '@/lib/prisma';
 
 // 👇 AJUSTE AQUI: Importe o ChatWindow (verifique se o caminho '@/components/' está certo)
-import ChatWindow from '@/components/chat-window'; 
+import ChatWindow from '@/app/components/chat-window'; 
 
 // 👇 OBRIGATÓRIO: Garante que a página sempre busque dados novos no banco
 export const dynamic = 'force-dynamic';
