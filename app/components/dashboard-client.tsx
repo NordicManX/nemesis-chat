@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation'; // Importante para mudar a URL
+import { useRouter } from 'next/navigation';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import AutoRefresh from './auto-refresh';
@@ -19,8 +19,8 @@ interface DashboardProps {
   };
   chartData: any[];
   selectedChat?: any;
-  teamStats: { name: string, count: number }[]; // <--- Novo dado
-  dateFilter: { start: string, end: string };   // <--- Datas atuais
+  teamStats: { name: string, count: number }[];
+  dateFilter: { start: string, end: string };
 }
 
 export default function DashboardClient({ chats, kpi, chartData, selectedChat, teamStats, dateFilter }: DashboardProps) {
@@ -28,6 +28,10 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // --- CORREÇÃO DE ESTADO (LOCAL CHATS) ---
+  // Criamos uma cópia local dos chats para manipular a visualização "Lido/Não Lido" instantaneamente
+  const [localChats, setLocalChats] = useState(chats);
 
   // Estados locais para os inputs de data
   const [startDate, setStartDate] = useState(dateFilter.start);
@@ -52,12 +56,34 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
     };
   }, [resize, stopResizing]);
 
-  // Função para aplicar o filtro
+  // --- SINCRONIZAÇÃO INTELIGENTE ---
+  // Toda vez que o servidor (chats) ou o chat selecionado mudar:
+  useEffect(() => {
+    setLocalChats(chats.map(c => {
+        // Se este é o chat aberto AGORA, forçamos a contagem para 0 visualmente
+        // Isso impede que o delay do servidor mostre a bolinha azul errada
+        if (selectedChat && c.id === selectedChat.id) {
+            return { ...c, _count: { messages: 0 } };
+        }
+        return c;
+    }));
+  }, [chats, selectedChat]);
+
+  // Marca como lido no banco (Background)
+  useEffect(() => {
+    if (selectedChat) {
+      fetch('/api/chat/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: selectedChat.id })
+      }).catch(err => console.error("Erro ao marcar lido:", err));
+    }
+  }, [selectedChat]);
+
   const handleFilter = () => {
       router.push(`/?startDate=${startDate}&endDate=${endDate}`);
   };
 
-  // Helper para cor da bandeira
   const getFlagColor = (level: number) => {
     if (level === 3) return "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse";
     if (level === 2) return "bg-yellow-500";
@@ -83,7 +109,8 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-          {chats.map((chat) => (
+          {/* USAMOS localChats AQUI EM VEZ DE chats */}
+          {localChats.map((chat) => (
             <Link key={chat.id} href={`/?chatId=${chat.id}&startDate=${startDate}&endDate=${endDate}`} className={`block p-4 transition border-b border-gray-800/50 group ${selectedChat?.id === chat.id ? 'bg-gray-800 border-l-4 border-l-emerald-500' : 'hover:bg-gray-800/50'}`}>
               <div className="flex justify-between items-start mb-1">
                 <div className="flex items-center gap-2 flex-1 truncate pr-2">
@@ -99,13 +126,14 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                   {chat.messages[0]?.sender === 'AGENT' && <span className="text-emerald-500 mr-1">Você:</span>}
                   {chat.messages[0]?.content || 'Nenhuma mensagem'}
                 </p>
+                {/* LÓGICA DE BOLINHA AZUL OTIMIZADA */}
                 {chat._count.messages > 0 && chat.id !== selectedChat?.id && (
                   <span className="bg-sky-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0 shadow-sm shadow-sky-900/50">{chat._count.messages}</span>
                 )}
               </div>
             </Link>
           ))}
-          {chats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Nenhum atendimento neste período.</div>}
+          {localChats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Nenhum atendimento neste período.</div>}
         </div>
 
         <div className="p-4 border-t border-gray-800 bg-gray-900">
@@ -131,7 +159,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                 <BarChart3 size={20} className="text-emerald-500"/> Visão Geral
               </h2>
               <div className="flex items-center gap-2 md:gap-3">
-                {/* --- BARRA DE FILTRO DE DATA --- */}
                 <div className="hidden md:flex items-center gap-2 bg-gray-800 p-1 rounded-lg border border-gray-700">
                     <div className="flex items-center gap-2 px-2">
                         <Calendar size={14} className="text-gray-400"/>
@@ -149,7 +176,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
               </div>
             </header>
             
-            {/* VERSÃO MOBILE DO FILTRO */}
             <div className="md:hidden p-4 bg-gray-900 border-b border-gray-800 flex flex-col gap-2">
                 <div className="flex gap-2">
                     <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded p-2 text-xs w-full text-white" />
@@ -159,8 +185,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-              
-              {/* KPIs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
                    <div className="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><Users size={20} /></div>
@@ -181,13 +205,11 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-                  {/* GRÁFICO (Ocupa 2/3) */}
                   <div className="lg:col-span-2 bg-gray-900 rounded-xl border border-gray-800 p-4 md:p-6">
                      <h3 className="text-sm font-bold text-gray-400 mb-4">Volume de Mensagens (Período Selecionado)</h3>
                      <MetricsChart data={chartData} />
                   </div>
 
-                  {/* NOVO: RANKING DE EQUIPE (Ocupa 1/3) */}
                   <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 md:p-6">
                      <h3 className="text-sm font-bold text-gray-400 mb-4">Performance por Setor</h3>
                      <div className="space-y-4">

@@ -31,9 +31,9 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // --- CONTROLE DE ROLAGEM INTELIGENTE ---
-  // Guardamos o ID do chat e a quantidade de mensagens anterior
-  const prevChatIdRef = useRef(chat.id);
+  // --- CONTROLE DE ROLAGEM INTELIGENTE (CORRIGIDO) ---
+  // Iniciamos com NULL para garantir que ele role na primeira vez que abrir
+  const prevChatIdRef = useRef<string | null>(null);
   const prevMsgCountRef = useRef(initialMessages.length);
 
   // Efeito que cuida SÓ da rolagem
@@ -42,7 +42,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     const hasNewMessages = messages.length > prevMsgCountRef.current;
 
     // Só rola para baixo se:
-    // 1. Mudou de cliente (abriu um chat novo)
+    // 1. Mudou de cliente (abriu um chat novo OU é a primeira renderização)
     // 2. Ou chegou mensagem nova (quantidade aumentou)
     if (isNewChat || hasNewMessages) {
         messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? "auto" : "smooth" });
@@ -51,7 +51,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         prevChatIdRef.current = chat.id;
         prevMsgCountRef.current = messages.length;
     }
-    // SE FOR APENAS REFRESH (AutoRefresh), ELE NÃO ENTRA NO IF E NÃO MEXE NA TELA
   }, [messages, chat.id]);
 
   useEffect(() => {
