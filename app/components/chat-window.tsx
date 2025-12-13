@@ -19,11 +19,9 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const [sending, setSending] = useState(false);
   const [department, setDepartment] = useState(chat.department || "GERAL");
   
-  // --- ESTADOS DE ARQUIVO ---
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- ESTADOS DO MODAL DE IMAGEM ---
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
 
@@ -39,37 +37,40 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     setDepartment(chat.department || "GERAL");
   }, [initialMessages, chat]);
 
-  // --- FUNÇÕES DE IMAGEM (Modal) ---
-  const openImageModal = (url: string) => { setSelectedImage(url); setZoomLevel(1); }
-  const closeImageModal = () => { setSelectedImage(null); setZoomLevel(1); }
-  const handleZoomIn = (e: React.MouseEvent) => { e.stopPropagation(); setZoomLevel(prev => Math.min(prev + 0.5, 3)); }
-  const handleZoomOut = (e: React.MouseEvent) => { e.stopPropagation(); setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); }
-  
-  const handleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!selectedImage) return;
+  // --- FUNÇÃO DE DOWNLOAD GENÉRICA (SERVE PRA TUDO) ---
+  const downloadResource = (e: React.MouseEvent, url: string | null) => {
+    e.stopPropagation(); // Não deixa clicar no chat atrás
+    if (!url) return;
+
     try {
         const link = document.createElement('a');
-        link.href = `/api/chat/download?url=${encodeURIComponent(selectedImage)}`;
+        // Usa nossa ponte para baixar sem erro de CORS
+        link.href = `/api/chat/download?url=${encodeURIComponent(url)}`;
         link.setAttribute('download', '');
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-    } catch (error) { console.error(error); }
+    } catch (error) {
+        console.error('Erro de download:', error);
+        alert("Erro ao iniciar download.");
+    }
   };
 
-  // --- FUNÇÕES DE ARQUIVO ---
+  // --- FUNÇÕES DE IMAGEM ---
+  const openImageModal = (url: string) => { setSelectedImage(url); setZoomLevel(1); }
+  const closeImageModal = () => { setSelectedImage(null); setZoomLevel(1); }
+  const handleZoomIn = (e: React.MouseEvent) => { e.stopPropagation(); setZoomLevel(prev => Math.min(prev + 0.5, 3)); }
+  const handleZoomOut = (e: React.MouseEvent) => { e.stopPropagation(); setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); }
+
+  // --- FUNÇÕES DE ARQUIVO (UPLOAD) ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      
-      // 🚨 VALIDAÇÃO DE TAMANHO (Limite Vercel: 4.5MB, colocamos 4MB por segurança)
       if (file.size > 4 * 1024 * 1024) {
         alert("⚠️ O arquivo é muito grande! O limite para envio é de 4MB.");
-        e.target.value = ''; // Limpa o input
+        e.target.value = '';
         return;
       }
-      
       setSelectedFile(file);
     }
   };
@@ -86,25 +87,20 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
 
     setSending(true);
 
-    // Preparando o FormData
     const formData = new FormData();
     formData.append('chatId', chat.id);
     if (newMessage) formData.append('content', newMessage);
     if (selectedFile) formData.append('file', selectedFile);
 
     try {
-      const res = await fetch('/api/chat/send', {
-        method: 'POST',
-        body: formData, 
-      });
+      const res = await fetch('/api/chat/send', { method: 'POST', body: formData });
 
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.error || "Erro no envio");
       }
 
-      // SUCESSO: Agora sim limpamos a tela e adicionamos a mensagem visualmente
-      // Envio Otimista (Visual)
+      // Atualização Otimista
       const tempMsg = {
         id: 'temp-' + Date.now(),
         content: newMessage || (selectedFile ? (selectedFile.type.startsWith('image/') ? '📷 Imagem enviada' : '📎 Arquivo enviado') : ''),
@@ -115,17 +111,13 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       };
       
       setMessages((prev) => [...prev, tempMsg]);
-
-      // Limpa os inputs
       setNewMessage('');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      
       router.refresh();
 
-   } catch (error: any) {
-      console.error("Erro ao enviar:", error);
-      // Mostra a mensagem exata do erro (ex: "Telegram recusou...")
+    } catch (error: any) {
+      console.error("Erro ao enviar", error);
       alert(`❌ Erro: ${error.message || "Falha desconhecida ao enviar."}`);
     } finally {
       setSending(false);
@@ -153,7 +145,8 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
              <span className="text-white/50 text-xs font-mono min-w-[40px] text-center">{Math.round(zoomLevel * 100)}%</span>
              <button onClick={handleZoomIn} className="text-white/70 hover:text-white bg-gray-800/80 rounded-full p-2" disabled={zoomLevel >= 3}><ZoomIn size={24} /></button>
              <div className="h-6 w-px bg-white/20 mx-2"></div>
-             <button onClick={handleDownload} className="text-white/70 hover:text-emerald-400 bg-gray-800/80 rounded-full p-2"><Download size={24} /></button>
+             {/* Usando a nova função genérica aqui também */}
+             <button onClick={(e) => downloadResource(e, selectedImage)} className="text-white/70 hover:text-emerald-400 bg-gray-800/80 rounded-full p-2"><Download size={24} /></button>
              <div className="h-6 w-px bg-white/20 mx-2"></div>
              <button onClick={closeImageModal} className="text-white/70 hover:text-red-400 bg-gray-800/80 rounded-full p-2"><X size={24} /></button>
           </div>
@@ -194,11 +187,20 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
                     <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center rounded-lg"><Maximize2 className="text-white drop-shadow-lg" size={24} /></div>
                 </div>
               ) : msg.type === 'DOCUMENT' ? (
-                <div className="flex items-center gap-3 bg-black/20 p-2 rounded-lg border border-white/10 mb-1">
+                /* --- CARD DE ARQUIVO CLICÁVEL --- */
+                <div 
+                  className="flex items-center gap-3 bg-black/20 p-2 rounded-lg border border-white/10 mb-1 cursor-pointer hover:bg-black/30 transition group"
+                  onClick={(e) => downloadResource(e, msg.mediaUrl)} // <--- CLIQUE AQUI BAIXA
+                  title="Clique para baixar"
+                >
                     <div className="p-2 bg-white/10 rounded-lg"><FileText size={24} /></div>
                     <div className="flex-1 overflow-hidden">
-                        <p className="font-mono text-xs truncate">Arquivo Anexado</p>
-                        <a href={`/api/chat/download?url=${encodeURIComponent(msg.mediaUrl || '')}`} target="_blank" className="text-[10px] text-emerald-200 hover:underline">Baixar Arquivo</a>
+                        <p className="font-mono text-xs truncate font-medium">Arquivo Anexado</p>
+                        <p className="text-[10px] text-emerald-200/70 group-hover:text-emerald-200 transition">Clique para baixar</p>
+                    </div>
+                    {/* Ícone de download visual */}
+                    <div className="mr-2 opacity-50 group-hover:opacity-100 transition">
+                      <Download size={16} />
                     </div>
                 </div>
               ) : (
@@ -215,7 +217,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ÁREA DE INPUT DE ARQUIVO (VISUALIZAÇÃO DE UPLOAD) */}
+      {/* PREVIEW DE UPLOAD */}
       {selectedFile && (
         <div className="px-4 py-2 bg-gray-900 border-t border-gray-800 flex items-center gap-3 animate-fade-in">
             <div className="relative">
@@ -233,7 +235,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         </div>
       )}
 
-      {/* FORMULÁRIO DE ENVIO */}
+      {/* INPUT */}
       <div className="p-3 md:p-4 bg-gray-900 border-t border-gray-800">
         <form onSubmit={handleSend} className="flex gap-2 items-end">
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
@@ -250,11 +252,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
             className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 text-white"
             disabled={sending}
           />
-          <button 
-            type="submit" 
-            disabled={sending || (!newMessage.trim() && !selectedFile)} 
-            className={`bg-emerald-600 hover:bg-emerald-500 p-3 rounded-xl text-white transition mb-[1px] ${sending ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
+          <button type="submit" disabled={sending || (!newMessage.trim() && !selectedFile)} className={`bg-emerald-600 hover:bg-emerald-500 p-3 rounded-xl text-white transition mb-[1px] ${sending ? 'opacity-50 cursor-not-allowed' : ''}`}>
             {sending ? <span className="animate-spin">⌛</span> : <Send size={20} />}
           </button>
         </form>
