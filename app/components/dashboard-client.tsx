@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
-import AutoRefresh from './auto-refresh';
+// Importamos o componente de AutoRefresh aqui também por segurança, 
+// embora ele já esteja rodando no page.tsx
+import AutoRefresh from '@/app/components/auto-refresh'; 
 import ChatWindow from './chat-window';
 import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3 } from 'lucide-react';
 
@@ -30,7 +32,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   // --- CORREÇÃO DE ESTADO (LOCAL CHATS) ---
-  // Criamos uma cópia local dos chats para manipular a visualização "Lido/Não Lido" instantaneamente
   const [localChats, setLocalChats] = useState(chats);
 
   // Estados locais para os inputs de data
@@ -57,13 +58,11 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
   }, [resize, stopResizing]);
 
   // --- SINCRONIZAÇÃO INTELIGENTE ---
-  // Toda vez que o servidor (chats) ou o chat selecionado mudar:
   useEffect(() => {
     setLocalChats(chats.map(c => {
         // Se este é o chat aberto AGORA, forçamos a contagem para 0 visualmente
-        // Isso impede que o delay do servidor mostre a bolinha azul errada
         if (selectedChat && c.id === selectedChat.id) {
-            return { ...c, _count: { messages: 0 } };
+            return { ...c, unreadCount: 0 }; // 🔥 Zera o contador visualmente
         }
         return c;
     }));
@@ -92,8 +91,8 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
 
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
-      <AutoRefresh />
-
+      {/* Opcional: AutoRefresh aqui para garantir, mas já está no page.tsx */}
+      
       {/* --- SIDEBAR --- */}
       <aside 
         ref={sidebarRef}
@@ -109,7 +108,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-          {/* USAMOS localChats AQUI EM VEZ DE chats */}
           {localChats.map((chat) => (
             <Link key={chat.id} href={`/?chatId=${chat.id}&startDate=${startDate}&endDate=${endDate}`} className={`block p-4 transition border-b border-gray-800/50 group ${selectedChat?.id === chat.id ? 'bg-gray-800 border-l-4 border-l-emerald-500' : 'hover:bg-gray-800/50'}`}>
               <div className="flex justify-between items-start mb-1">
@@ -126,9 +124,12 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                   {chat.messages[0]?.sender === 'AGENT' && <span className="text-emerald-500 mr-1">Você:</span>}
                   {chat.messages[0]?.content || 'Nenhuma mensagem'}
                 </p>
-                {/* LÓGICA DE BOLINHA AZUL OTIMIZADA */}
-                {chat._count.messages > 0 && chat.id !== selectedChat?.id && (
-                  <span className="bg-sky-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0 shadow-sm shadow-sky-900/50">{chat._count.messages}</span>
+
+                {/* 🔥 LÓGICA DE BOLINHA AZUL (AGORA USA O CAMPO CERTO) */}
+                {chat.unreadCount > 0 && chat.id !== selectedChat?.id && (
+                  <span className="bg-sky-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0 shadow-sm shadow-sky-900/50 animate-pulse">
+                    {chat.unreadCount}
+                  </span>
                 )}
               </div>
             </Link>

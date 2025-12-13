@@ -3,8 +3,7 @@ import { prisma } from '@/lib/prisma';
 import DashboardClient from './components/dashboard-client';
 import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
-// 👇 1. Importe o componente que faz o refresh automático
-import AutoRefresh from '@/app/components/auto-refresh';
+import AutoRefresh from '@/app/components/auto-refresh'; // Confirme se o caminho da pasta está certo
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +11,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   const searchParams = await props.searchParams;
   const selectedChatId = searchParams.chatId;
 
-  // 1. Definição de Datas (Padrão: Últimos 30 dias se não selecionar nada)
+  // 1. Definição de Datas
   const now = new Date();
   const defaultStart = new Date();
   defaultStart.setDate(now.getDate() - 30);
@@ -20,7 +19,6 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   const startDate = searchParams.startDate ? new Date(searchParams.startDate) : defaultStart;
   const endDate = searchParams.endDate ? new Date(searchParams.endDate) : now;
   
-  // Ajuste para pegar o dia inteiro (00:00 até 23:59)
   startDate.setHours(0,0,0,0);
   endDate.setHours(23,59,59,999);
 
@@ -36,8 +34,8 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
     };
   }
 
-  // 3. Buscar Chats (Filtrados por Data + Permissão)
-  const chats = await prisma.chat.findMany({
+  // 3. Buscar Chats (RAW - Bruto do banco)
+  const chatsRaw = await prisma.chat.findMany({
     where: {
       ...whereCondition,
       lastMessageAt: {
@@ -46,14 +44,27 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
       }
     },
     include: {
-      messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-      _count: { select: { messages: { where: { isRead: false, sender: 'CUSTOMER' } } } }
+      messages: { orderBy: { createdAt: 'desc' }, take: 1 }, // Pega a última msg para texto
+      _count: { 
+        select: { 
+            messages: { 
+                // 🔥 FILTRO MÁGICO: Conta apenas o que não foi lido e veio do Cliente
+                where: { isRead: false, sender: 'CUSTOMER' } 
+            } 
+        } 
+      }
     },
     orderBy: [
       { urgencyLevel: 'desc' }, 
       { lastMessageAt: 'desc' }
     ],
   });
+
+  // 🔥 3.1 TRANSFORMAÇÃO: Aqui criamos o campo 'unreadCount' para o visual ler
+  const chats = chatsRaw.map(chat => ({
+    ...chat,
+    unreadCount: chat._count.messages // Tira de dentro do _count e coloca fácil
+  }));
 
   // 4. Selecionar Chat Específico
   let selectedChat = null;
@@ -64,7 +75,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
     });
   }
 
-  // 5. Dados do Gráfico (Baseado no intervalo selecionado)
+  // 5. Dados do Gráfico
   const chartMessages = await prisma.message.findMany({
     where: {
       createdAt: { gte: startDate, lte: endDate },
@@ -73,15 +84,12 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
     select: { createdAt: true }
   });
 
-  // Agrupa mensagens por dia
   const chartDataMap = new Map();
   chartMessages.forEach(msg => {
     const dateStr = new Date(msg.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     chartDataMap.set(dateStr, (chartDataMap.get(dateStr) || 0) + 1);
   });
-  // Transforma em array para o gráfico
   const chartData = Array.from(chartDataMap).map(([date, count]) => ({ date, count }));
-
 
   // 6. Performance da Equipe
   const agentMessages = await prisma.message.findMany({
@@ -108,11 +116,13 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   // KPIs Gerais
   const totalClients = chats.length;
   const totalMessages = chartMessages.length;
+  // Ajustado para usar o unreadCount se quiser saber quantos tem msg pendente, 
+  // ou mantém a lógica de "ativos nas últimas 24h"
   const activeNow = chats.filter(c => c.messages.length > 0 && (new Date().getTime() - new Date(c.messages[0].createdAt).getTime()) < 24 * 60 * 60 * 1000).length;
 
   return (
     <>
-      {/* 👇 2. O componente invisível fica aqui e força a atualização a cada 1s */}
+      {/* Atualiza a cada 1s */}
       <AutoRefresh /> 
       
       <DashboardClient 
