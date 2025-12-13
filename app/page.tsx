@@ -53,29 +53,27 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
     ],
   });
 
-  // 🔥 4. FORMATAÇÃO INTELIGENTE (O SEGREDO ESTÁ AQUI)
-  // Preparamos os dados para o visual não ter trabalho
+  // 4. FORMATAÇÃO INTELIGENTE
   const chats = chatsRaw.map(chat => {
     const lastMsg = chat.messages[0];
     let preview = "Sem mensagens";
     
-    // Lógica do Preview (Texto, Imagem ou Arquivo)
     if (lastMsg) {
         if (lastMsg.type === 'IMAGE') preview = '📷 Imagem';
         else if (lastMsg.type === 'DOCUMENT') preview = '📎 Arquivo';
-        else preview = lastMsg.content;
+        // 👇 AQUI ESTAVA O ERRO. Adicionei "|| ''" para garantir que seja string
+        else preview = lastMsg.content || ''; 
     }
 
-    // Se fui EU (Agente) que mandei a última, coloco um "Você: " antes
     if (lastMsg?.sender === 'AGENT') {
         preview = `Você: ${preview}`;
     }
 
     return {
         ...chat,
-        unreadCount: chat._count.messages, // Número da bolinha azul
-        lastMessagePreview: preview,       // Texto cinza abaixo do nome
-        lastMessageTime: lastMsg?.createdAt // Data para ordenar/exibir
+        unreadCount: chat._count.messages,
+        lastMessagePreview: preview,
+        lastMessageTime: lastMsg?.createdAt
     };
   });
 
