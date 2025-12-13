@@ -1,4 +1,3 @@
-// app/components/chat-window.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -54,16 +53,16 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
           if (isMounted) {
             setMessages((prev) => {
                // LÓGICA INTELIGENTE: Só atualiza o estado se tiver novidade
-               // 1. Se a quantidade mudou (chegou mensagem nova)
+               // 1. Se a quantidade mudou
                if (newMessages.length !== prev.length) return newMessages;
                
-               // 2. Se a última mensagem mudou (ex: mensagem enviada foi confirmada)
+               // 2. Se a última mensagem mudou (confirmou envio)
                const lastPrev = prev[prev.length - 1];
                const lastNew = newMessages[newMessages.length - 1];
                
                if (lastPrev?.id !== lastNew?.id) return newMessages;
 
-               // Se estiver tudo igual, não faz nada para economizar processamento
+               // Se estiver tudo igual, não faz nada
                return prev; 
             });
           }
@@ -102,7 +101,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     setUrgency(chat.urgencyLevel || 1);
   }, [initialMessages, chat]);
 
-  // --- FUNÇÃO PARA MUDAR A BANDEIRA ---
+  // --- FUNÇÕES AUXILIARES ---
   async function handleChangeUrgency(level: number) {
     setUrgency(level);
     await fetch('/api/chat/urgency', {
@@ -110,15 +109,12 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatId: chat.id, urgencyLevel: level }),
     });
-    // Aqui mantemos o refresh pois muda dados do chat, não só mensagens
     router.refresh(); 
   }
 
-  // --- FUNÇÃO DE DOWNLOAD GENÉRICA ---
   const downloadResource = (e: React.MouseEvent, url: string | null) => {
     e.stopPropagation(); 
     if (!url) return;
-
     try {
         const link = document.createElement('a');
         link.href = `/api/chat/download?url=${encodeURIComponent(url)}`;
@@ -128,17 +124,14 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         document.body.removeChild(link);
     } catch (error) {
         console.error('Erro de download:', error);
-        alert("Erro ao iniciar download.");
     }
   };
 
-  // --- FUNÇÕES DE IMAGEM ---
   const openImageModal = (url: string) => { setSelectedImage(url); setZoomLevel(1); }
   const closeImageModal = () => { setSelectedImage(null); setZoomLevel(1); }
   const handleZoomIn = (e: React.MouseEvent) => { e.stopPropagation(); setZoomLevel(prev => Math.min(prev + 0.5, 3)); }
   const handleZoomOut = (e: React.MouseEvent) => { e.stopPropagation(); setZoomLevel(prev => Math.max(prev - 0.5, 0.5)); }
 
-  // --- FUNÇÕES DE ARQUIVO (UPLOAD) ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -156,7 +149,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- ENVIO ---
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!newMessage.trim() && !selectedFile) return;
@@ -190,8 +182,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       setNewMessage('');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      
-      // Removemos o router.refresh() daqui, pois o intervalo vai buscar a msg real em breve
       
     } catch (error: any) {
       console.error("Erro ao enviar", error);
@@ -238,10 +228,14 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         </div>
       )}
 
-      {/* HEADER */}
-      <div className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-6 bg-gray-900 flex-shrink-0">
+      {/* HEADER CORRIGIDO (Z-INDEX e CLICK) */}
+      <div className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-6 bg-gray-900 flex-shrink-0 relative z-50 shadow-md">
         <div className="flex items-center gap-3">
-          <Link href="/" className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white"><ArrowLeft size={20} /></Link>
+          {/* Botão Voltar Mobile Corrigido */}
+          <button onClick={() => router.push('/')} className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white rounded-full active:bg-gray-800">
+            <ArrowLeft size={20} />
+          </button>
+          
           <div>
             <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">{chat.customerName}</h2>
@@ -272,7 +266,11 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
             </div>
           </div>
         </div>
-        <Link href="/" className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white"><X size={20} /></Link>
+
+        {/* Botão Fechar Desktop Corrigido */}
+        <button onClick={() => router.push('/')} className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition">
+           <X size={20} />
+        </button>
       </div>
 
       {/* MENSAGENS */}
@@ -315,24 +313,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         ))}
         <div ref={messagesEndRef} />
       </div>
-
-      {/* PREVIEW DE UPLOAD */}
-      {selectedFile && (
-        <div className="px-4 py-2 bg-gray-900 border-t border-gray-800 flex items-center gap-3 animate-fade-in">
-            <div className="relative">
-                {selectedFile.type.startsWith('image/') ? (
-                    <img src={URL.createObjectURL(selectedFile)} alt="Preview" className="h-12 w-12 object-cover rounded-lg border border-gray-600" />
-                ) : (
-                    <div className="h-12 w-12 bg-gray-800 rounded-lg border border-gray-600 flex items-center justify-center"><FileText className="text-gray-400" /></div>
-                )}
-                <button onClick={removeSelectedFile} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"><X size={12} /></button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-                <p className="text-xs text-white truncate font-medium">{selectedFile.name}</p>
-                <p className="text-[10px] text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-            </div>
-        </div>
-      )}
 
       {/* INPUT */}
       <div className="p-3 md:p-4 bg-gray-900 border-t border-gray-800">
