@@ -1,13 +1,13 @@
-// app/components/dashboard-client.tsx
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react'; // 👈 Importante para checar o cargo
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
-import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3 } from 'lucide-react';
+import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck } from 'lucide-react';
 
 interface DashboardProps {
   chats: any[];
@@ -24,11 +24,13 @@ interface DashboardProps {
 
 export default function DashboardClient({ chats: initialChats, kpi, chartData, selectedChat, teamStats, dateFilter }: DashboardProps) {
   const router = useRouter();
+  const { data: session } = useSession(); // 👈 Pega os dados da sessão
+  const isAdmin = (session?.user as any)?.role === 'ADMIN'; // 👈 Verifica se é Admin
+
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // Inicializa com o que veio do servidor
   const [localChats, setLocalChats] = useState(initialChats);
   const [startDate, setStartDate] = useState(dateFilter.start);
   const [endDate, setEndDate] = useState(dateFilter.end);
@@ -51,57 +53,39 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
     };
   }, [resize, stopResizing]);
 
-  // =========================================================
-  // 🔥 BUSCA ATUALIZAÇÃO E MOSTRA ERRO NO CONSOLE (F12)
-  // =========================================================
+  // 🔥 BUSCA AUTOMÁTICA (Polling)
   useEffect(() => {
     let isMounted = true;
-
     const fetchLatestChats = async () => {
         try {
-            // Log para debug
-            // console.log("🔄 Buscando chats atualizados...");
-
             const url = `/api/chats/list?startDate=${startDate}&endDate=${endDate}&t=${Date.now()}`;
             const res = await fetch(url, { cache: 'no-store' });
-            
             if (res.ok) {
                 const data = await res.json();
                 if (isMounted) {
                     setLocalChats(prevChats => {
                         return data.map((c: any) => {
-                             // Mantém unreadCount zerado se for o chat selecionado
-                             if (selectedChat && c.id === selectedChat.id) {
-                                 return { ...c, unreadCount: 0 };
-                             }
+                             if (selectedChat && c.id === selectedChat.id) return { ...c, unreadCount: 0 };
                              return c;
                         });
                     });
                 }
-            } else {
-                console.error("❌ Erro ao buscar chats:", res.status, res.statusText);
             }
         } catch (error) {
-            console.error("❌ Falha na conexão com API:", error);
+            console.error("Erro ao atualizar sidebar:", error);
         }
     };
-
-    // Roda a cada 2 segundos
     const interval = setInterval(fetchLatestChats, 2000);
     return () => { isMounted = false; clearInterval(interval); };
   }, [startDate, endDate, selectedChat]);
 
-  // =========================================================
-
-  // Marca como lido e zera a bolinha localmente
+  // Marca como lido
   useEffect(() => {
     if (selectedChat) {
       fetch('/api/chat/read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatId: selectedChat.id })
-      }).catch(err => console.error("Erro ao marcar lido:", err));
-      
+      }).catch(err => console.error(err));
       setLocalChats(prev => prev.map(c => c.id === selectedChat.id ? { ...c, unreadCount: 0 } : c));
     }
   }, [selectedChat]);
@@ -119,6 +103,7 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
+      {/* --- SIDEBAR --- */}
       <aside 
         ref={sidebarRef}
         className={`flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex w-full'} md:w-auto`}
@@ -144,16 +129,10 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                   {chat.lastMessageTime ? new Date(chat.lastMessageTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                 </span>
               </div>
-              
               <div className="flex justify-between items-center mt-1">
-                <p className={`text-xs truncate w-full pr-2 ${selectedChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>
-                  {chat.lastMessagePreview}
-                </p>
-
+                <p className={`text-xs truncate w-full pr-2 ${selectedChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>{chat.lastMessagePreview}</p>
                 {chat.unreadCount > 0 && chat.id !== selectedChat?.id && (
-                  <span className="bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full shadow-lg shadow-blue-500/40 animate-pulse">
-                    {chat.unreadCount}
-                  </span>
+                  <span className="bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full shadow-lg shadow-blue-500/40 animate-pulse">{chat.unreadCount}</span>
                 )}
               </div>
             </Link>
@@ -161,18 +140,37 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
           {localChats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Nenhum atendimento neste período.</div>}
         </div>
 
-        <div className="p-4 border-t border-gray-800 bg-gray-900">
+        {/* RODAPÉ DA SIDEBAR ATUALIZADO */}
+        <div className="p-4 border-t border-gray-800 bg-gray-900 space-y-2">
+           
+           {/* 👇 Link para Gestão de Usuários (Só aparece se for ADMIN) */}
+           {isAdmin && (
+               <Link href="/admin/users" className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group">
+                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-emerald-500/50 transition">
+                    <Settings size={16} />
+                  </div>
+                  <div className="flex-1"><p className="text-sm font-medium">Gestão de Equipe</p></div>
+               </Link>
+           )}
+
            <Link href="/profile" className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition overflow-hidden">
-              <div className="w-8 h-8 rounded-full bg-emerald-600 flex-shrink-0 flex items-center justify-center text-xs font-bold">AD</div>
-              <div className="flex-1 truncate"><p className="text-sm font-medium">Admin</p><p className="text-xs text-gray-500">Online</p></div>
+              <div className="w-8 h-8 rounded-full bg-emerald-600 flex-shrink-0 flex items-center justify-center text-xs font-bold">
+                 {session?.user?.name?.charAt(0) || 'U'}
+              </div>
+              <div className="flex-1 truncate">
+                 <p className="text-sm font-medium truncate">{session?.user?.name || 'Usuário'}</p>
+                 <p className="text-xs text-gray-500">Online</p>
+              </div>
               <ChevronRight size={16} className="text-gray-600 flex-shrink-0" />
            </Link>
         </div>
+        
         <div onMouseDown={startResizing} className="hidden md:flex absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-emerald-500 transition-colors z-50 items-center justify-center group">
             <div className="h-8 w-1 bg-gray-600 rounded-full group-hover:bg-white transition-colors opacity-0 group-hover:opacity-100" />
         </div>
       </aside>
 
+      {/* --- ÁREA PRINCIPAL --- */}
       <main className={`flex-col h-screen overflow-hidden bg-gray-950 flex-1 ${selectedChat ? 'flex w-full' : 'hidden md:flex'}`}>
         {selectedChat ? (
           <ChatWindow chat={selectedChat} initialMessages={selectedChat.messages} />
@@ -204,6 +202,25 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+              
+              {/* CARD DE AÇÃO RÁPIDA PARA ADMIN (NOVO) */}
+              {isAdmin && (
+                  <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-gray-900 to-gray-800 border border-gray-700 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                          <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-lg">
+                              <ShieldCheck size={24} />
+                          </div>
+                          <div>
+                              <h3 className="font-bold text-white">Painel Administrativo</h3>
+                              <p className="text-sm text-gray-400">Você tem acesso total para gerenciar a equipe.</p>
+                          </div>
+                      </div>
+                      <Link href="/admin/users" className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg text-sm font-bold transition">
+                          Gerenciar Usuários
+                      </Link>
+                  </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
                    <div className="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><Users size={20} /></div>
