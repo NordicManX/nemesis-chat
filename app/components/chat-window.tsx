@@ -123,9 +123,10 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       
       router.refresh();
 
-    } catch (error) {
-      console.error("Erro ao enviar", error);
-      alert("❌ Falha ao enviar mensagem. Verifique se o arquivo não excede 4MB.");
+   } catch (error: any) {
+      console.error("Erro ao enviar:", error);
+      // Mostra a mensagem exata do erro (ex: "Telegram recusou...")
+      alert(`❌ Erro: ${error.message || "Falha desconhecida ao enviar."}`);
     } finally {
       setSending(false);
     }
