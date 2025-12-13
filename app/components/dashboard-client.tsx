@@ -28,13 +28,11 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // Inicializa com o que veio do servidor, mas depois atualiza sozinho
+  // Inicializa com o que veio do servidor
   const [localChats, setLocalChats] = useState(initialChats);
-
   const [startDate, setStartDate] = useState(dateFilter.start);
   const [endDate, setEndDate] = useState(dateFilter.end);
 
-  // --- REDIMENSIONAMENTO ---
   const startResizing = useCallback(() => setIsResizing(true), []);
   const stopResizing = useCallback(() => setIsResizing(false), []);
   const resize = useCallback((mouseMoveEvent: MouseEvent) => {
@@ -54,14 +52,16 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   }, [resize, stopResizing]);
 
   // =========================================================
-  // 🔥 CORREÇÃO: BUSCA A LISTA ATUALIZADA A CADA 2 SEGUNDOS
+  // 🔥 BUSCA ATUALIZAÇÃO E MOSTRA ERRO NO CONSOLE (F12)
   // =========================================================
   useEffect(() => {
     let isMounted = true;
 
     const fetchLatestChats = async () => {
         try {
-            // Chama a nova API passando as datas e um timestamp para quebrar cache
+            // Log para debug
+            // console.log("🔄 Buscando chats atualizados...");
+
             const url = `/api/chats/list?startDate=${startDate}&endDate=${endDate}&t=${Date.now()}`;
             const res = await fetch(url, { cache: 'no-store' });
             
@@ -69,8 +69,8 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                 const data = await res.json();
                 if (isMounted) {
                     setLocalChats(prevChats => {
-                        // Mapeia para zerar a bolinha se for o chat selecionado
                         return data.map((c: any) => {
+                             // Mantém unreadCount zerado se for o chat selecionado
                              if (selectedChat && c.id === selectedChat.id) {
                                  return { ...c, unreadCount: 0 };
                              }
@@ -78,20 +78,22 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                         });
                     });
                 }
+            } else {
+                console.error("❌ Erro ao buscar chats:", res.status, res.statusText);
             }
         } catch (error) {
-            console.error("Erro ao atualizar sidebar:", error);
+            console.error("❌ Falha na conexão com API:", error);
         }
     };
 
     // Roda a cada 2 segundos
     const interval = setInterval(fetchLatestChats, 2000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [startDate, endDate, selectedChat]); // Recomeça se mudar datas ou chat selecionado
+  }, [startDate, endDate, selectedChat]);
 
   // =========================================================
 
-  // Marca como lido no banco assim que abre o chat
+  // Marca como lido e zera a bolinha localmente
   useEffect(() => {
     if (selectedChat) {
       fetch('/api/chat/read', {
@@ -100,7 +102,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
         body: JSON.stringify({ chatId: selectedChat.id })
       }).catch(err => console.error("Erro ao marcar lido:", err));
       
-      // Zera visualmente imediatamente
       setLocalChats(prev => prev.map(c => c.id === selectedChat.id ? { ...c, unreadCount: 0 } : c));
     }
   }, [selectedChat]);
@@ -118,7 +119,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
-      {/* --- SIDEBAR --- */}
       <aside 
         ref={sidebarRef}
         className={`flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex w-full'} md:w-auto`}
@@ -146,12 +146,10 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
               </div>
               
               <div className="flex justify-between items-center mt-1">
-                {/* PREVIEW */}
                 <p className={`text-xs truncate w-full pr-2 ${selectedChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>
                   {chat.lastMessagePreview}
                 </p>
 
-                {/* BOLINHA AZUL */}
                 {chat.unreadCount > 0 && chat.id !== selectedChat?.id && (
                   <span className="bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full shadow-lg shadow-blue-500/40 animate-pulse">
                     {chat.unreadCount}
@@ -175,7 +173,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
         </div>
       </aside>
 
-      {/* --- ÁREA PRINCIPAL --- */}
       <main className={`flex-col h-screen overflow-hidden bg-gray-950 flex-1 ${selectedChat ? 'flex w-full' : 'hidden md:flex'}`}>
         {selectedChat ? (
           <ChatWindow chat={selectedChat} initialMessages={selectedChat.messages} />

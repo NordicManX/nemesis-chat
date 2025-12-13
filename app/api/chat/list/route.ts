@@ -2,20 +2,23 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+// 👇 Tenta importar usando o alias @. Se der erro de caminho, avise.
+import { authOptions } from "@/app/api/auth/[...nextauth]/route"; 
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    
+    // Se não tiver sessão, retornamos array vazio em vez de erro para não quebrar o front
+    if (!session) return NextResponse.json([], { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
 
-    // Configura datas (igual ao page.tsx)
+    // Configura datas
     const now = new Date();
     const defaultStart = new Date(); 
     defaultStart.setDate(now.getDate() - 30);
@@ -51,7 +54,7 @@ export async function GET(req: Request) {
       ],
     });
 
-    // Formata o JSON para o Frontend (Preview + Bolinha Azul)
+    // Formata o JSON
     const chats = chatsRaw.map(chat => {
         const lastMsg = chat.messages[0];
         let preview = "Sem mensagens";
@@ -74,16 +77,12 @@ export async function GET(req: Request) {
         };
     });
 
-    // Headers anti-cache violentos
     return NextResponse.json(chats, {
-        headers: {
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Pragma': 'no-cache'
-        }
+        headers: { 'Cache-Control': 'no-store, no-cache' }
     });
 
   } catch (error) {
-    console.error(error);
+    console.error("Erro na API de Chats:", error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }
 }
