@@ -6,22 +6,29 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 export async function POST(req: Request) {
   try {
+    // 1. Validação de Segurança Básica
+    if (!TELEGRAM_TOKEN) {
+      console.error('TELEGRAM_BOT_TOKEN não definido');
+      return NextResponse.json({ error: 'Configuração interna inválida' }, { status: 500 });
+    }
+
     const update = await req.json();
     const { message } = update;
 
+    // Se não for uma mensagem (ex: status de 'digitando...' ou edição), ignora
     if (!message) return NextResponse.json({ ok: true });
 
-    // Dados básicos
+    // Dados do remetente
     const { from, chat } = message;
     const telegramId = chat.id.toString();
     const customerName = from.first_name + (from.last_name ? ` ${from.last_name}` : '');
 
-    // 1. Garante/Atualiza o Chat
+    // 2. Garante/Atualiza o Chat (Upsert)
     const chatRecord = await prisma.chat.upsert({
       where: { telegramId },
       update: { 
         customerName,
-        lastMessageAt: new Date()
+        lastMessageAt: new Date() // Atualiza data para subir na lista
       }, 
       create: {
         telegramId,
@@ -31,43 +38,47 @@ export async function POST(req: Request) {
     });
 
     let msgContent = '';
-    let msgType = 'TEXT';
+    let msgType = 'TEXT'; // Certifique-se que no schema.prisma isso é String ou Enum compatível
     let msgMediaUrl = null;
 
-    // --- CENÁRIO A: TEXTO ---
+    // --- LÓGICA DE CONTEÚDO ---
+
+    // A. Texto
     if (message.text) {
       msgContent = message.text;
     } 
-    // --- CENÁRIO B: FOTO ---
+    // B. Foto (Comprimida)
     else if (message.photo) {
       msgType = 'IMAGE';
-      msgContent = '📷 Foto'; // Texto para aparecer no resumo da lista
-      
-      // O Telegram manda várias resoluções. Pegamos a última (melhor qualidade)
+      msgContent = '📷 Foto'; 
+      // Pega a última foto do array (maior resolução)
       const photo = message.photo[message.photo.length - 1];
-      const fileId = photo.file_id;
-
-      // Pergunta ao Telegram o caminho do arquivo
-      const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`);
-      const data = await res.json();
-      
-      if (data.ok) {
-        const filePath = data.result.file_path;
-        // Monta o link final (Cuidado: esse link expõe o Token, mas para MVP funciona)
-        msgMediaUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`;
-      }
+      msgMediaUrl = await getTelegramFileUrl(photo.file_id);
+    }
+    // C. Documento (Prints enviados como arquivo)
+    else if (message.document) {
+      msgType = 'DOCUMENT'; // Se seu prisma não tiver esse Enum, mude para 'TEXT' ou 'IMAGE'
+      msgContent = `📎 Arquivo: ${message.document.file_name || 'Sem nome'}`;
+      msgMediaUrl = await getTelegramFileUrl(message.document.file_id);
+    }
+    // D. Áudio/Voz
+    else if (message.voice || message.audio) {
+      msgType = 'AUDIO';
+      msgContent = '🎤 Áudio';
+      const fileId = message.voice ? message.voice.file_id : message.audio.file_id;
+      msgMediaUrl = await getTelegramFileUrl(fileId);
     }
 
-    // Se não for nem texto nem foto, ignora
+    // Se não identificou conteúdo suportado, apenas confirma recebimento para não travar o bot
     if (!msgContent && !msgMediaUrl) {
         return NextResponse.json({ ok: true });
     }
 
-    // 2. Salva no Banco
+    // 3. Salva a Mensagem
     await prisma.message.create({
       data: {
         content: msgContent,
-        type: msgType,
+        type: msgType as any, // Cast se estiver usando Enums no Prisma
         mediaUrl: msgMediaUrl,
         sender: 'CUSTOMER',
         chatId: chatRecord.id,
@@ -76,8 +87,26 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true });
+
   } catch (error) {
     console.error('Erro Webhook:', error);
-    return NextResponse.json({ error: 'Erro' }, { status: 500 });
+    // Retorna 200 mesmo com erro para evitar que o Telegram fique re-enviando a mensagem infinitamente
+    return NextResponse.json({ ok: true }); 
   }
+}
+
+// Função auxiliar para pegar o link do arquivo
+async function getTelegramFileUrl(fileId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`);
+    const data = await res.json();
+    
+    if (data.ok && data.result.file_path) {
+      // ⚠️ IMPORTANTE: Esse link contém seu Token. Veja aviso abaixo.
+      return `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${data.result.file_path}`;
+    }
+  } catch (e) {
+    console.error('Erro ao buscar arquivo do Telegram:', e);
+  }
+  return null;
 }
