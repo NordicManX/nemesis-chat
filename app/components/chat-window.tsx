@@ -31,23 +31,32 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // --- CONTROLE DE ROLAGEM INTELIGENTE (CORRIGIDO) ---
-  // Iniciamos com NULL para garantir que ele role na primeira vez que abrir
+  // --- CONTROLE DE ROLAGEM INTELIGENTE ---
   const prevChatIdRef = useRef<string | null>(null);
   const prevMsgCountRef = useRef(initialMessages.length);
+
+  // ============================================================
+  // 🔥 NOVO: ATUALIZAÇÃO AUTOMÁTICA (POLLING)
+  // ============================================================
+  useEffect(() => {
+    // Atualiza os dados da página a cada 3 segundos (3000ms)
+    const interval = setInterval(() => {
+      router.refresh(); 
+    }, 2000);
+
+    // Limpa o intervalo quando o usuário sai da página
+    return () => clearInterval(interval);
+  }, [router]);
+  // ============================================================
 
   // Efeito que cuida SÓ da rolagem
   useEffect(() => {
     const isNewChat = prevChatIdRef.current !== chat.id;
     const hasNewMessages = messages.length > prevMsgCountRef.current;
 
-    // Só rola para baixo se:
-    // 1. Mudou de cliente (abriu um chat novo OU é a primeira renderização)
-    // 2. Ou chegou mensagem nova (quantidade aumentou)
     if (isNewChat || hasNewMessages) {
         messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? "auto" : "smooth" });
         
-        // Atualiza as referências
         prevChatIdRef.current = chat.id;
         prevMsgCountRef.current = messages.length;
     }
@@ -166,7 +175,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     router.refresh();
   }
 
-  // Helper para cor da bandeira
   const getFlagColor = (level: number) => {
       if (level === 3) return "text-red-500";
       if (level === 2) return "text-yellow-500";
@@ -199,16 +207,12 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         <div className="flex items-center gap-3">
           <Link href="/" className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white"><ArrowLeft size={20} /></Link>
           <div>
-            {/* CONTAINER DO NOME E DA BANDEIRA */}
             <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">{chat.customerName}</h2>
-                
-                {/* --- SELETOR DE BANDEIRA --- */}
                 <div className="relative group">
                     <button className={`p-1 rounded hover:bg-gray-800 transition ${getFlagColor(urgency)}`} title="Alterar Urgência">
                         <Flag size={16} fill={urgency > 1 ? "currentColor" : "none"} />
                     </button>
-                    {/* Menu Dropdown */}
                     <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-1 hidden group-hover:flex flex-col gap-1 z-50 min-w-[120px]">
                         <button onClick={() => handleChangeUrgency(1)} className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 rounded text-left">
                             <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Normal
@@ -248,7 +252,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
                     <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center rounded-lg"><Maximize2 className="text-white drop-shadow-lg" size={24} /></div>
                 </div>
               ) : msg.type === 'DOCUMENT' ? (
-                /* --- CARD DE ARQUIVO CLICÁVEL --- */
                 <div 
                   className="flex items-center gap-3 bg-black/20 p-2 rounded-lg border border-white/10 mb-1 cursor-pointer hover:bg-black/30 transition group"
                   onClick={(e) => downloadResource(e, msg.mediaUrl)}
