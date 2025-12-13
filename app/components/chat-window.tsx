@@ -35,7 +35,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const prevMsgCountRef = useRef(initialMessages.length);
 
   // ============================================================
-  // 🔥 ATUALIZAÇÃO VIA API (SEM RECARREGAR PÁGINA)
+  // 🔥 ATUALIZAÇÃO VIA API (CORREÇÃO ANTI-CACHE)
   // ============================================================
   useEffect(() => {
     let isMounted = true;
@@ -44,8 +44,12 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       if (!chat.id) return;
 
       try {
-        // Busca o JSON leve da rota de API que criamos
-        const res = await fetch(`/api/chat/messages?chatId=${chat.id}`);
+        // 👇 O TRUQUE ESTÁ AQUI: &t=${Date.now()}
+        // Isso cria um link único a cada segundo, obrigando o navegador a baixar de novo.
+        const res = await fetch(`/api/chat/messages?chatId=${chat.id}&t=${Date.now()}`, {
+             cache: 'no-store',
+             headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+        });
         
         if (res.ok) {
           const newMessages = await res.json();
@@ -72,8 +76,8 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
       }
     };
 
-    // Roda a busca a cada 3 segundos (3000ms)
-    const interval = setInterval(fetchMessages, 3000);
+    // Roda a busca a cada 2 segundos (2000ms) - Tempo ideal
+    const interval = setInterval(fetchMessages, 2000);
 
     return () => {
       isMounted = false;
