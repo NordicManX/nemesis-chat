@@ -4,7 +4,7 @@ import DashboardClient from './components/dashboard-client';
 import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
 // 👇 1. Importe o componente que faz o refresh automático
-import AutoRefresh from '@/components/auto-refresh';
+import AutoRefresh from '@/app/components/auto-refresh';
 
 export const dynamic = 'force-dynamic';
 
