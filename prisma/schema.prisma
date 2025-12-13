@@ -13,7 +13,8 @@ model Chat {
   id            String    @id @default(cuid())
   telegramId    String    @unique
   customerName  String?
-  department    String?   @default("GERAL") 
+  department    String?   @default("GERAL")
+  urgencyLevel  Int       @default(1) 
   messages      Message[]
   createdAt     DateTime  @default(now())
   lastMessageAt DateTime  @default(now())

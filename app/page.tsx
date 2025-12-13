@@ -33,7 +33,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
 
   // 3. Busca lista de Chats (COM O FILTRO)
   const chats = await prisma.chat.findMany({
-    where: whereCondition, // <--- APLICA O FILTRO AQUI
+    where: whereCondition,
     include: {
       messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       _count: { 
@@ -42,7 +42,13 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
         } 
       }
     },
-    orderBy: { lastMessageAt: 'desc' },
+    // ORDEM DE PRIORIDADE:
+    // 1º Nível de Urgência (Decrescente: 3->2->1)
+    // 2º Data da última mensagem (Mais recentes primeiro)
+    orderBy: [
+      { urgencyLevel: 'desc' }, 
+      { lastMessageAt: 'desc' }
+    ],
   });
 
   // 4. Se tiver um ID na URL, busca a conversa (Verifica se ele tem permissão de ver essa também)

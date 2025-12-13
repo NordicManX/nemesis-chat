@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, X, ArrowLeft, Check, Briefcase, Maximize2, ZoomIn, ZoomOut, Download, Paperclip, FileText } from 'lucide-react';
+// Adicionei o ícone Flag aqui
+import { Send, X, ArrowLeft, Check, Briefcase, Maximize2, ZoomIn, ZoomOut, Download, Paperclip, FileText, Flag } from 'lucide-react';
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -19,6 +20,9 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const [sending, setSending] = useState(false);
   const [department, setDepartment] = useState(chat.department || "GERAL");
   
+  // --- ESTADO DA URGÊNCIA (BANDEIRAS) ---
+  const [urgency, setUrgency] = useState(chat.urgencyLevel || 1); // 1=Verde, 2=Amarelo, 3=Vermelho
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -35,16 +39,28 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   useEffect(() => {
     setMessages(initialMessages);
     setDepartment(chat.department || "GERAL");
+    // Atualiza a urgência ao trocar de chat
+    setUrgency(chat.urgencyLevel || 1);
   }, [initialMessages, chat]);
 
-  // --- FUNÇÃO DE DOWNLOAD GENÉRICA (SERVE PRA TUDO) ---
+  // --- FUNÇÃO PARA MUDAR A BANDEIRA ---
+  async function handleChangeUrgency(level: number) {
+    setUrgency(level);
+    await fetch('/api/chat/urgency', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: chat.id, urgencyLevel: level }),
+    });
+    router.refresh();
+  }
+
+  // --- FUNÇÃO DE DOWNLOAD GENÉRICA ---
   const downloadResource = (e: React.MouseEvent, url: string | null) => {
-    e.stopPropagation(); // Não deixa clicar no chat atrás
+    e.stopPropagation(); 
     if (!url) return;
 
     try {
         const link = document.createElement('a');
-        // Usa nossa ponte para baixar sem erro de CORS
         link.href = `/api/chat/download?url=${encodeURIComponent(url)}`;
         link.setAttribute('download', '');
         document.body.appendChild(link);
@@ -134,6 +150,13 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
     router.refresh();
   }
 
+  // Helper para cor da bandeira
+  const getFlagColor = (level: number) => {
+      if (level === 3) return "text-red-500";
+      if (level === 2) return "text-yellow-500";
+      return "text-gray-600 hover:text-emerald-500"; 
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-950 w-full relative">
       
@@ -145,7 +168,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
              <span className="text-white/50 text-xs font-mono min-w-[40px] text-center">{Math.round(zoomLevel * 100)}%</span>
              <button onClick={handleZoomIn} className="text-white/70 hover:text-white bg-gray-800/80 rounded-full p-2" disabled={zoomLevel >= 3}><ZoomIn size={24} /></button>
              <div className="h-6 w-px bg-white/20 mx-2"></div>
-             {/* Usando a nova função genérica aqui também */}
              <button onClick={(e) => downloadResource(e, selectedImage)} className="text-white/70 hover:text-emerald-400 bg-gray-800/80 rounded-full p-2"><Download size={24} /></button>
              <div className="h-6 w-px bg-white/20 mx-2"></div>
              <button onClick={closeImageModal} className="text-white/70 hover:text-red-400 bg-gray-800/80 rounded-full p-2"><X size={24} /></button>
@@ -161,7 +183,30 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
         <div className="flex items-center gap-3">
           <Link href="/" className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white"><ArrowLeft size={20} /></Link>
           <div>
-            <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">{chat.customerName}</h2>
+            {/* CONTAINER DO NOME E DA BANDEIRA */}
+            <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">{chat.customerName}</h2>
+                
+                {/* --- SELETOR DE BANDEIRA --- */}
+                <div className="relative group">
+                    <button className={`p-1 rounded hover:bg-gray-800 transition ${getFlagColor(urgency)}`} title="Alterar Urgência">
+                        <Flag size={16} fill={urgency > 1 ? "currentColor" : "none"} />
+                    </button>
+                    {/* Menu Dropdown */}
+                    <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-1 hidden group-hover:flex flex-col gap-1 z-50 min-w-[120px]">
+                        <button onClick={() => handleChangeUrgency(1)} className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 rounded text-left">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Normal
+                        </button>
+                        <button onClick={() => handleChangeUrgency(2)} className="flex items-center gap-2 px-3 py-2 text-xs text-yellow-500 hover:bg-gray-700 rounded text-left font-medium">
+                            <span className="w-2 h-2 rounded-full bg-yellow-500"></span> Atenção
+                        </button>
+                        <button onClick={() => handleChangeUrgency(3)} className="flex items-center gap-2 px-3 py-2 text-xs text-red-500 hover:bg-gray-700 rounded text-left font-bold">
+                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> Urgente!
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div className="flex items-center gap-1 text-xs text-emerald-400 cursor-pointer group relative mt-0.5">
                 <Briefcase size={12} />
                 <select value={department} onChange={(e) => handleChangeDepartment(e.target.value)} className="bg-transparent border-none focus:ring-0 p-0 text-xs font-medium cursor-pointer uppercase hover:text-white transition outline-none appearance-none pr-4">
@@ -190,7 +235,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
                 /* --- CARD DE ARQUIVO CLICÁVEL --- */
                 <div 
                   className="flex items-center gap-3 bg-black/20 p-2 rounded-lg border border-white/10 mb-1 cursor-pointer hover:bg-black/30 transition group"
-                  onClick={(e) => downloadResource(e, msg.mediaUrl)} // <--- CLIQUE AQUI BAIXA
+                  onClick={(e) => downloadResource(e, msg.mediaUrl)}
                   title="Clique para baixar"
                 >
                     <div className="p-2 bg-white/10 rounded-lg"><FileText size={24} /></div>
@@ -198,7 +243,6 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
                         <p className="font-mono text-xs truncate font-medium">Arquivo Anexado</p>
                         <p className="text-[10px] text-emerald-200/70 group-hover:text-emerald-200 transition">Clique para baixar</p>
                     </div>
-                    {/* Ícone de download visual */}
                     <div className="mr-2 opacity-50 group-hover:opacity-100 transition">
                       <Download size={16} />
                     </div>

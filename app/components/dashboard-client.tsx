@@ -57,8 +57,7 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
-      {/* --- CORREÇÃO AQUI: REMOVEMOS A CONDIÇÃO --- */}
-      {/* Agora ele atualiza sempre, garantindo que as msgs cheguem dentro do chat */}
+      {/* AutoRefresh roda sempre para garantir mensagens em tempo real */}
       <AutoRefresh />
 
       {/* --- SIDEBAR --- */}
@@ -89,19 +88,35 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat }:
               }`}
             >
               <div className="flex justify-between items-start mb-1">
-                <h3 className={`font-semibold text-sm truncate pr-2 flex-1 ${selectedChat?.id === chat.id ? 'text-white' : 'text-gray-200'}`}>
-                  {chat.customerName || 'Cliente'}
-                </h3>
+                {/* --- MUDANÇA AQUI: Wrapper para Nome e Bandeira --- */}
+                <div className="flex items-center gap-2 flex-1 truncate pr-2">
+                    
+                    {/* Bandeira Vermelha (Nível 3) - Piscando */}
+                    {chat.urgencyLevel === 3 && (
+                        <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse shrink-0" title="Urgente"></span>
+                    )}
+                    
+                    {/* Bandeira Amarela (Nível 2) */}
+                    {chat.urgencyLevel === 2 && (
+                        <span className="h-2 w-2 rounded-full bg-yellow-500 shrink-0" title="Atenção"></span>
+                    )}
+
+                    <h3 className={`font-semibold text-sm truncate ${selectedChat?.id === chat.id ? 'text-white' : 'text-gray-200'}`}>
+                    {chat.customerName || 'Cliente'}
+                    </h3>
+                </div>
+
                 <span className="text-[10px] text-gray-500 whitespace-nowrap ml-2">
                   {chat.messages[0] ? new Date(chat.messages[0].createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                 </span>
               </div>
+              
               <div className="flex justify-between items-end">
                 <p className="text-xs text-gray-400 truncate w-full pr-2">
                   {chat.messages[0]?.sender === 'AGENT' && <span className="text-emerald-500 mr-1">Você:</span>}
                   {chat.messages[0]?.content || 'Nenhuma mensagem'}
                 </p>
-                {/* Bolinha Azul */}
+                {/* Bolinha Azul de Mensagens Não Lidas */}
                 {chat._count.messages > 0 && chat.id !== selectedChat?.id && (
                   <span className="bg-sky-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0 shadow-sm shadow-sky-900/50">
                     {chat._count.messages}
