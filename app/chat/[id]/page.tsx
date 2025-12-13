@@ -1,7 +1,10 @@
 // app/chat/[id]/page.tsx
 import { prisma } from '@/lib/prisma';
-import ChatInterface from './client-interface'; // Vamos criar esse componente logo abaixo
 
+// 👇 AJUSTE AQUI: Importe o ChatWindow (verifique se o caminho '@/components/' está certo)
+import ChatWindow from '@/components/chat-window'; 
+
+// 👇 OBRIGATÓRIO: Garante que a página sempre busque dados novos no banco
 export const dynamic = 'force-dynamic';
 
 export default async function ChatPage(props: { params: Promise<{ id: string }> }) {
@@ -19,6 +22,6 @@ export default async function ChatPage(props: { params: Promise<{ id: string }> 
 
   if (!chat) return <div className="text-white p-10">Chat não encontrado!</div>;
 
-  // 2. Passa os dados para o componente Cliente (onde a mágica acontece)
-  return <ChatInterface chat={chat} initialMessages={chat.messages} />;
+  // 2. Passa os dados para o ChatWindow
+  return <ChatWindow chat={chat} initialMessages={chat.messages} />;
 }
