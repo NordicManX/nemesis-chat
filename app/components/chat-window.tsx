@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-// Adicionei o ícone Flag aqui
 import { Send, X, ArrowLeft, Check, Briefcase, Maximize2, ZoomIn, ZoomOut, Download, Paperclip, FileText, Flag } from 'lucide-react';
 import Link from 'next/link';
 
@@ -21,7 +20,7 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const [department, setDepartment] = useState(chat.department || "GERAL");
   
   // --- ESTADO DA URGÊNCIA (BANDEIRAS) ---
-  const [urgency, setUrgency] = useState(chat.urgencyLevel || 1); // 1=Verde, 2=Amarelo, 3=Vermelho
+  const [urgency, setUrgency] = useState(chat.urgencyLevel || 1);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,14 +31,32 @@ export default function ChatWindow({ chat, initialMessages }: ChatWindowProps) {
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // --- CONTROLE DE ROLAGEM INTELIGENTE ---
+  // Guardamos o ID do chat e a quantidade de mensagens anterior
+  const prevChatIdRef = useRef(chat.id);
+  const prevMsgCountRef = useRef(initialMessages.length);
+
+  // Efeito que cuida SÓ da rolagem
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const isNewChat = prevChatIdRef.current !== chat.id;
+    const hasNewMessages = messages.length > prevMsgCountRef.current;
+
+    // Só rola para baixo se:
+    // 1. Mudou de cliente (abriu um chat novo)
+    // 2. Ou chegou mensagem nova (quantidade aumentou)
+    if (isNewChat || hasNewMessages) {
+        messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? "auto" : "smooth" });
+        
+        // Atualiza as referências
+        prevChatIdRef.current = chat.id;
+        prevMsgCountRef.current = messages.length;
+    }
+    // SE FOR APENAS REFRESH (AutoRefresh), ELE NÃO ENTRA NO IF E NÃO MEXE NA TELA
+  }, [messages, chat.id]);
 
   useEffect(() => {
     setMessages(initialMessages);
     setDepartment(chat.department || "GERAL");
-    // Atualiza a urgência ao trocar de chat
     setUrgency(chat.urgencyLevel || 1);
   }, [initialMessages, chat]);
 
