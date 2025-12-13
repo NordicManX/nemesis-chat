@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import DashboardClient from './components/dashboard-client';
 import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
-import AutoRefresh from '@/app/components/auto-refresh'; // Confirme se o caminho da pasta está certo
+import AutoRefresh from '@/app/components/auto-refresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +18,6 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   
   const startDate = searchParams.startDate ? new Date(searchParams.startDate) : defaultStart;
   const endDate = searchParams.endDate ? new Date(searchParams.endDate) : now;
-  
   startDate.setHours(0,0,0,0);
   endDate.setHours(23,59,59,999);
 
@@ -34,24 +33,18 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
     };
   }
 
-  // 3. Buscar Chats (RAW - Bruto do banco)
+  // 3. Buscar Chats (RAW)
   const chatsRaw = await prisma.chat.findMany({
     where: {
       ...whereCondition,
-      lastMessageAt: {
-        gte: startDate,
-        lte: endDate
-      }
+      lastMessageAt: { gte: startDate, lte: endDate }
     },
     include: {
-      messages: { orderBy: { createdAt: 'desc' }, take: 1 }, // Pega a última msg para texto
+      // Pegamos a última mensagem para fazer o PREVIEW
+      messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      // Contamos quantas mensagens o CLIENTE mandou e não foram lidas
       _count: { 
-        select: { 
-            messages: { 
-                // 🔥 FILTRO MÁGICO: Conta apenas o que não foi lido e veio do Cliente
-                where: { isRead: false, sender: 'CUSTOMER' } 
-            } 
-        } 
+        select: { messages: { where: { isRead: false, sender: 'CUSTOMER' } } } 
       }
     },
     orderBy: [
@@ -60,13 +53,33 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
     ],
   });
 
-  // 🔥 3.1 TRANSFORMAÇÃO: Aqui criamos o campo 'unreadCount' para o visual ler
-  const chats = chatsRaw.map(chat => ({
-    ...chat,
-    unreadCount: chat._count.messages // Tira de dentro do _count e coloca fácil
-  }));
+  // 🔥 4. FORMATAÇÃO INTELIGENTE (O SEGREDO ESTÁ AQUI)
+  // Preparamos os dados para o visual não ter trabalho
+  const chats = chatsRaw.map(chat => {
+    const lastMsg = chat.messages[0];
+    let preview = "Sem mensagens";
+    
+    // Lógica do Preview (Texto, Imagem ou Arquivo)
+    if (lastMsg) {
+        if (lastMsg.type === 'IMAGE') preview = '📷 Imagem';
+        else if (lastMsg.type === 'DOCUMENT') preview = '📎 Arquivo';
+        else preview = lastMsg.content;
+    }
 
-  // 4. Selecionar Chat Específico
+    // Se fui EU (Agente) que mandei a última, coloco um "Você: " antes
+    if (lastMsg?.sender === 'AGENT') {
+        preview = `Você: ${preview}`;
+    }
+
+    return {
+        ...chat,
+        unreadCount: chat._count.messages, // Número da bolinha azul
+        lastMessagePreview: preview,       // Texto cinza abaixo do nome
+        lastMessageTime: lastMsg?.createdAt // Data para ordenar/exibir
+    };
+  });
+
+  // 5. Selecionar Chat Específico
   let selectedChat = null;
   if (selectedChatId) {
     selectedChat = await prisma.chat.findFirst({
@@ -75,12 +88,9 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
     });
   }
 
-  // 5. Dados do Gráfico
+  // 6. Dados do Gráfico
   const chartMessages = await prisma.message.findMany({
-    where: {
-      createdAt: { gte: startDate, lte: endDate },
-      chat: whereCondition
-    },
+    where: { createdAt: { gte: startDate, lte: endDate }, chat: whereCondition },
     select: { createdAt: true }
   });
 
@@ -91,40 +101,26 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   });
   const chartData = Array.from(chartDataMap).map(([date, count]) => ({ date, count }));
 
-  // 6. Performance da Equipe
+  // 7. Performance e KPIs
   const agentMessages = await prisma.message.findMany({
-    where: {
-      createdAt: { gte: startDate, lte: endDate },
-      sender: 'AGENT',
-      chat: whereCondition
-    },
-    include: {
-        chat: {
-            select: { department: true }
-        }
-    }
+    where: { createdAt: { gte: startDate, lte: endDate }, sender: 'AGENT', chat: whereCondition },
+    include: { chat: { select: { department: true } } }
   });
-
   const teamPerformanceMap = new Map();
   agentMessages.forEach(msg => {
       const dept = msg.chat.department || 'GERAL';
       teamPerformanceMap.set(dept, (teamPerformanceMap.get(dept) || 0) + 1);
   });
-
   const teamStats = Array.from(teamPerformanceMap).map(([name, count]) => ({ name, count }));
 
-  // KPIs Gerais
   const totalClients = chats.length;
   const totalMessages = chartMessages.length;
-  // Ajustado para usar o unreadCount se quiser saber quantos tem msg pendente, 
-  // ou mantém a lógica de "ativos nas últimas 24h"
-  const activeNow = chats.filter(c => c.messages.length > 0 && (new Date().getTime() - new Date(c.messages[0].createdAt).getTime()) < 24 * 60 * 60 * 1000).length;
+  // Ativos agora = quem tem mensagem não lida
+  const activeNow = chats.filter(c => c.unreadCount > 0).length;
 
   return (
     <>
-      {/* Atualiza a cada 1s */}
       <AutoRefresh /> 
-      
       <DashboardClient 
         chats={chats}
         chartData={chartData}

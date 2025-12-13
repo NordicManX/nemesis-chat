@@ -6,9 +6,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
-// Importamos o componente de AutoRefresh aqui também por segurança, 
-// embora ele já esteja rodando no page.tsx
-import AutoRefresh from '@/app/components/auto-refresh'; 
 import ChatWindow from './chat-window';
 import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3 } from 'lucide-react';
 
@@ -31,10 +28,9 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // --- CORREÇÃO DE ESTADO (LOCAL CHATS) ---
+  // Cópia local para atualizações instantâneas
   const [localChats, setLocalChats] = useState(chats);
 
-  // Estados locais para os inputs de data
   const [startDate, setStartDate] = useState(dateFilter.start);
   const [endDate, setEndDate] = useState(dateFilter.end);
 
@@ -57,18 +53,18 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
     };
   }, [resize, stopResizing]);
 
-  // --- SINCRONIZAÇÃO INTELIGENTE ---
+  // --- SINCRONIZAÇÃO E ZERAR BOLINHA ---
   useEffect(() => {
     setLocalChats(chats.map(c => {
-        // Se este é o chat aberto AGORA, forçamos a contagem para 0 visualmente
+        // Se este é o chat aberto AGORA, a bolinha deve sumir (zerar unreadCount)
         if (selectedChat && c.id === selectedChat.id) {
-            return { ...c, unreadCount: 0 }; // 🔥 Zera o contador visualmente
+            return { ...c, unreadCount: 0 }; 
         }
         return c;
     }));
   }, [chats, selectedChat]);
 
-  // Marca como lido no banco (Background)
+  // Marca como lido no banco assim que abre o chat
   useEffect(() => {
     if (selectedChat) {
       fetch('/api/chat/read', {
@@ -91,7 +87,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
 
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
-      {/* Opcional: AutoRefresh aqui para garantir, mas já está no page.tsx */}
       
       {/* --- SIDEBAR --- */}
       <aside 
@@ -116,18 +111,19 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                     <h3 className={`font-semibold text-sm truncate ${selectedChat?.id === chat.id ? 'text-white' : 'text-gray-200'}`}>{chat.customerName || 'Cliente'}</h3>
                 </div>
                 <span className="text-[10px] text-gray-500 whitespace-nowrap ml-2">
-                  {chat.messages[0] ? new Date(chat.messages[0].createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+                  {chat.lastMessageTime ? new Date(chat.lastMessageTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                 </span>
               </div>
-              <div className="flex justify-between items-end">
-                <p className="text-xs text-gray-400 truncate w-full pr-2">
-                  {chat.messages[0]?.sender === 'AGENT' && <span className="text-emerald-500 mr-1">Você:</span>}
-                  {chat.messages[0]?.content || 'Nenhuma mensagem'}
+              
+              <div className="flex justify-between items-center mt-1">
+                {/* 👇 PREVIEW DA MENSAGEM */}
+                <p className={`text-xs truncate w-full pr-2 ${selectedChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>
+                  {chat.lastMessagePreview}
                 </p>
 
-                {/* 🔥 LÓGICA DE BOLINHA AZUL (AGORA USA O CAMPO CERTO) */}
+                {/* 👇 BOLINHA AZUL (Só aparece se tiver > 0 e não for o chat atual) */}
                 {chat.unreadCount > 0 && chat.id !== selectedChat?.id && (
-                  <span className="bg-sky-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center flex-shrink-0 shadow-sm shadow-sky-900/50 animate-pulse">
+                  <span className="bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full shadow-lg shadow-blue-500/40 animate-pulse">
                     {chat.unreadCount}
                   </span>
                 )}
@@ -137,6 +133,7 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
           {localChats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Nenhum atendimento neste período.</div>}
         </div>
 
+        {/* ... RODAPÉ DA SIDEBAR ... */}
         <div className="p-4 border-t border-gray-800 bg-gray-900">
            <Link href="/profile" className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition overflow-hidden">
               <div className="w-8 h-8 rounded-full bg-emerald-600 flex-shrink-0 flex items-center justify-center text-xs font-bold">AD</div>
@@ -160,7 +157,7 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                 <BarChart3 size={20} className="text-emerald-500"/> Visão Geral
               </h2>
               <div className="flex items-center gap-2 md:gap-3">
-                <div className="hidden md:flex items-center gap-2 bg-gray-800 p-1 rounded-lg border border-gray-700">
+                 <div className="hidden md:flex items-center gap-2 bg-gray-800 p-1 rounded-lg border border-gray-700">
                     <div className="flex items-center gap-2 px-2">
                         <Calendar size={14} className="text-gray-400"/>
                         <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-transparent text-xs text-white focus:outline-none" />
@@ -171,18 +168,13 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                         <Filter size={12}/> Filtrar
                     </button>
                 </div>
-
                 <div className="h-6 w-px bg-gray-800 mx-1"></div>
                 <LogoutButton />
               </div>
             </header>
             
             <div className="md:hidden p-4 bg-gray-900 border-b border-gray-800 flex flex-col gap-2">
-                <div className="flex gap-2">
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded p-2 text-xs w-full text-white" />
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded p-2 text-xs w-full text-white" />
-                </div>
-                <button onClick={handleFilter} className="bg-emerald-600 w-full py-2 rounded text-xs font-bold uppercase">Aplicar Filtro</button>
+               <button onClick={handleFilter} className="bg-emerald-600 w-full py-2 rounded text-xs font-bold uppercase">Aplicar Filtro</button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
@@ -196,12 +188,12 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                    <div><p className="text-gray-500 text-[10px] uppercase font-bold">Interações</p><h3 className="text-xl font-bold">{kpi.totalMessages}</h3></div>
                 </div>
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
-                  <div className="p-3 bg-orange-500/10 text-orange-400 rounded-lg"><Activity size={20} /></div>
-                  <div><p className="text-gray-500 text-[10px] uppercase font-bold">Ativos 24h</p><h3 className="text-xl font-bold">{kpi.activeNow}</h3></div>
+                   <div className="p-3 bg-orange-500/10 text-orange-400 rounded-lg"><Activity size={20} /></div>
+                   <div><p className="text-gray-500 text-[10px] uppercase font-bold">Ativos 24h</p><h3 className="text-xl font-bold">{kpi.activeNow}</h3></div>
                 </div>
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
-                  <div className="p-3 bg-purple-500/10 text-purple-400 rounded-lg"><Clock size={20} /></div>
-                  <div><p className="text-gray-500 text-[10px] uppercase font-bold">Status</p><h3 className="text-lg font-bold text-emerald-500">Online</h3></div>
+                   <div className="p-3 bg-purple-500/10 text-purple-400 rounded-lg"><Clock size={20} /></div>
+                   <div><p className="text-gray-500 text-[10px] uppercase font-bold">Status</p><h3 className="text-lg font-bold text-emerald-500">Online</h3></div>
                 </div>
               </div>
 
@@ -231,10 +223,8 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
                             <p className="text-xs text-gray-500 text-center py-4">Sem dados de equipe.</p>
                         )}
                      </div>
-                     <p className="text-[10px] text-gray-600 mt-4 text-center">Baseado no volume de mensagens enviadas.</p>
                   </div>
               </div>
-
             </div>
           </>
         )}
