@@ -8,14 +8,13 @@ export default function AutoRefresh() {
   const router = useRouter();
 
   useEffect(() => {
-    // Configura o intervalo para 10 segundos (10000 ms)
+    // Configura o intervalo para 1 segundo (1000 ms)
     const interval = setInterval(() => {
-      router.refresh(); // Recarrega os dados do servidor (Server Components)
+      router.refresh(); // Recarrega os dados do servidor
     }, 1000);
 
-    // Limpa o intervalo se o usuário sair da página
     return () => clearInterval(interval);
   }, [router]);
 
-  return null; // Este componente não mostra nada na tela, é invisível
+  return null; // Invisível
 }

@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import DashboardClient from './components/dashboard-client';
 import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
+// 👇 1. Importe o componente que faz o refresh automático
+import AutoRefresh from '@/components/auto-refresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +40,6 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   const chats = await prisma.chat.findMany({
     where: {
       ...whereCondition,
-      // AQUI ESTÁ O FILTRO DE DATA
       lastMessageAt: {
         gte: startDate,
         lte: endDate
@@ -82,11 +83,7 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   const chartData = Array.from(chartDataMap).map(([date, count]) => ({ date, count }));
 
 
-  // 6. NOVO: Performance da Equipe (Quem atendeu mais?)
-  // Como não temos "assignedTo" no chat ainda, contamos quantas mensagens cada agente enviou no período
-  // Isso requer uma query mais avançada, vamos fazer uma aproximação:
-  // Buscamos todas as mensagens de AGENTE nesse período e agrupamos manualmente aqui (já que prisma group by tem limitações em alguns dbs serverless)
-  
+  // 6. Performance da Equipe
   const agentMessages = await prisma.message.findMany({
     where: {
       createdAt: { gte: startDate, lte: endDate },
@@ -94,20 +91,16 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
       chat: whereCondition
     },
     include: {
-        // Precisamos saber quem mandou. Atualmente nosso modelo Message não tem userId, só 'sender=AGENT'.
-        // *Nota:* Para saber EXATAMENTE qual funcionário, precisaríamos adicionar 'userId' na Message.
-        // Como paliativo, vamos mostrar o volume total por DEPARTAMENTO dos chats.
         chat: {
             select: { department: true }
         }
     }
   });
 
-  // Agrupando produtividade por Departamento (já que não temos ID do usuário na mensagem ainda)
   const teamPerformanceMap = new Map();
   agentMessages.forEach(msg => {
-     const dept = msg.chat.department || 'GERAL';
-     teamPerformanceMap.set(dept, (teamPerformanceMap.get(dept) || 0) + 1);
+      const dept = msg.chat.department || 'GERAL';
+      teamPerformanceMap.set(dept, (teamPerformanceMap.get(dept) || 0) + 1);
   });
 
   const teamStats = Array.from(teamPerformanceMap).map(([name, count]) => ({ name, count }));
@@ -118,16 +111,21 @@ export default async function Dashboard(props: { searchParams: Promise<{ chatId?
   const activeNow = chats.filter(c => c.messages.length > 0 && (new Date().getTime() - new Date(c.messages[0].createdAt).getTime()) < 24 * 60 * 60 * 1000).length;
 
   return (
-    <DashboardClient 
-      chats={chats}
-      chartData={chartData}
-      kpi={{ totalClients, totalMessages, activeNow }}
-      selectedChat={selectedChat}
-      teamStats={teamStats} // <--- Passamos os dados da equipe
-      dateFilter={{ 
-          start: startDate.toISOString().split('T')[0], 
-          end: endDate.toISOString().split('T')[0] 
-      }}
-    />
+    <>
+      {/* 👇 2. O componente invisível fica aqui e força a atualização a cada 1s */}
+      <AutoRefresh /> 
+      
+      <DashboardClient 
+        chats={chats}
+        chartData={chartData}
+        kpi={{ totalClients, totalMessages, activeNow }}
+        selectedChat={selectedChat}
+        teamStats={teamStats}
+        dateFilter={{ 
+            start: startDate.toISOString().split('T')[0], 
+            end: endDate.toISOString().split('T')[0] 
+        }}
+      />
+    </>
   );
 }
