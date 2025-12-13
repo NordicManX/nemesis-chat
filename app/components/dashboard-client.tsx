@@ -22,21 +22,21 @@ interface DashboardProps {
   dateFilter: { start: string, end: string };
 }
 
-export default function DashboardClient({ chats, kpi, chartData, selectedChat, teamStats, dateFilter }: DashboardProps) {
+export default function DashboardClient({ chats: initialChats, kpi, chartData, selectedChat, teamStats, dateFilter }: DashboardProps) {
   const router = useRouter();
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // Cópia local para atualizações instantâneas
-  const [localChats, setLocalChats] = useState(chats);
+  // Inicializa com o que veio do servidor, mas depois atualiza sozinho
+  const [localChats, setLocalChats] = useState(initialChats);
 
   const [startDate, setStartDate] = useState(dateFilter.start);
   const [endDate, setEndDate] = useState(dateFilter.end);
 
+  // --- REDIMENSIONAMENTO ---
   const startResizing = useCallback(() => setIsResizing(true), []);
   const stopResizing = useCallback(() => setIsResizing(false), []);
-
   const resize = useCallback((mouseMoveEvent: MouseEvent) => {
     if (isResizing) {
       const newWidth = mouseMoveEvent.clientX;
@@ -53,16 +53,43 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
     };
   }, [resize, stopResizing]);
 
-  // --- SINCRONIZAÇÃO E ZERAR BOLINHA ---
+  // =========================================================
+  // 🔥 CORREÇÃO: BUSCA A LISTA ATUALIZADA A CADA 2 SEGUNDOS
+  // =========================================================
   useEffect(() => {
-    setLocalChats(chats.map(c => {
-        // Se este é o chat aberto AGORA, a bolinha deve sumir (zerar unreadCount)
-        if (selectedChat && c.id === selectedChat.id) {
-            return { ...c, unreadCount: 0 }; 
+    let isMounted = true;
+
+    const fetchLatestChats = async () => {
+        try {
+            // Chama a nova API passando as datas e um timestamp para quebrar cache
+            const url = `/api/chats/list?startDate=${startDate}&endDate=${endDate}&t=${Date.now()}`;
+            const res = await fetch(url, { cache: 'no-store' });
+            
+            if (res.ok) {
+                const data = await res.json();
+                if (isMounted) {
+                    setLocalChats(prevChats => {
+                        // Mapeia para zerar a bolinha se for o chat selecionado
+                        return data.map((c: any) => {
+                             if (selectedChat && c.id === selectedChat.id) {
+                                 return { ...c, unreadCount: 0 };
+                             }
+                             return c;
+                        });
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Erro ao atualizar sidebar:", error);
         }
-        return c;
-    }));
-  }, [chats, selectedChat]);
+    };
+
+    // Roda a cada 2 segundos
+    const interval = setInterval(fetchLatestChats, 2000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, [startDate, endDate, selectedChat]); // Recomeça se mudar datas ou chat selecionado
+
+  // =========================================================
 
   // Marca como lido no banco assim que abre o chat
   useEffect(() => {
@@ -72,6 +99,9 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatId: selectedChat.id })
       }).catch(err => console.error("Erro ao marcar lido:", err));
+      
+      // Zera visualmente imediatamente
+      setLocalChats(prev => prev.map(c => c.id === selectedChat.id ? { ...c, unreadCount: 0 } : c));
     }
   }, [selectedChat]);
 
@@ -116,12 +146,12 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
               </div>
               
               <div className="flex justify-between items-center mt-1">
-                {/* 👇 PREVIEW DA MENSAGEM */}
+                {/* PREVIEW */}
                 <p className={`text-xs truncate w-full pr-2 ${selectedChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>
                   {chat.lastMessagePreview}
                 </p>
 
-                {/* 👇 BOLINHA AZUL (Só aparece se tiver > 0 e não for o chat atual) */}
+                {/* BOLINHA AZUL */}
                 {chat.unreadCount > 0 && chat.id !== selectedChat?.id && (
                   <span className="bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full shadow-lg shadow-blue-500/40 animate-pulse">
                     {chat.unreadCount}
@@ -133,7 +163,6 @@ export default function DashboardClient({ chats, kpi, chartData, selectedChat, t
           {localChats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Nenhum atendimento neste período.</div>}
         </div>
 
-        {/* ... RODAPÉ DA SIDEBAR ... */}
         <div className="p-4 border-t border-gray-800 bg-gray-900">
            <Link href="/profile" className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition overflow-hidden">
               <div className="w-8 h-8 rounded-full bg-emerald-600 flex-shrink-0 flex items-center justify-center text-xs font-bold">AD</div>
