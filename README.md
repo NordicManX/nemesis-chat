@@ -57,7 +57,7 @@ O projeto foi desenvolvido utilizando as tecnologias mais modernas do ecossistem
 
 1. **Clone o repositório:**
    ```bash
-     git clone [https://github.com/seu-usuario/nemesis-chat.git](https://github.com/seu-usuario/nemesis-chat.git)
+     git clone [https://github.com/seu-usuario/nemesis-chat.git]
      cd nemesis-chat
    ```
 2. Instale as dependências:
