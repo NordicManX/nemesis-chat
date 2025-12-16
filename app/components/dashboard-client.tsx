@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react'; // 👈 Importante para checar o cargo
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react'; 
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
@@ -17,16 +17,19 @@ interface DashboardProps {
     activeNow: number;
   };
   chartData: any[];
-  selectedChat?: any;
+  selectedChat?: any; 
   teamStats: { name: string, count: number }[];
   dateFilter: { start: string, end: string };
 }
 
-export default function DashboardClient({ chats: initialChats, kpi, chartData, selectedChat, teamStats, dateFilter }: DashboardProps) {
+export default function DashboardClient({ chats: initialChats, kpi, chartData, selectedChat: serverSelectedChat, teamStats, dateFilter }: DashboardProps) {
   const router = useRouter();
-  const { data: session } = useSession(); // 👈 Pega os dados da sessão
-  const isAdmin = (session?.user as any)?.role === 'ADMIN'; // 👈 Verifica se é Admin
+  const { data: session } = useSession(); 
+  const isAdmin = (session?.user as any)?.role === 'ADMIN';
 
+  const [isClient, setIsClient] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [activeChat, setActiveChat] = useState<any>(serverSelectedChat || null);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -34,6 +37,26 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   const [localChats, setLocalChats] = useState(initialChats);
   const [startDate, setStartDate] = useState(dateFilter.start);
   const [endDate, setEndDate] = useState(dateFilter.end);
+
+  useEffect(() => { setIsClient(true); }, []);
+
+  useEffect(() => {
+    if (serverSelectedChat) setActiveChat(serverSelectedChat);
+  }, [serverSelectedChat]);
+
+  useEffect(() => {
+    async function fetchUserAvatar() {
+      if (!session) return;
+      try {
+        const res = await fetch('/api/profile');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.avatar) setAvatarUrl(data.avatar);
+        }
+      } catch (error) { console.error(error); }
+    }
+    fetchUserAvatar();
+  }, [session]);
 
   const startResizing = useCallback(() => setIsResizing(true), []);
   const stopResizing = useCallback(() => setIsResizing(false), []);
@@ -45,15 +68,16 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   }, [isResizing]);
 
   useEffect(() => {
-    window.addEventListener("mousemove", resize);
-    window.addEventListener("mouseup", stopResizing);
+    if (isResizing) {
+      window.addEventListener("mousemove", resize);
+      window.addEventListener("mouseup", stopResizing);
+    }
     return () => {
       window.removeEventListener("mousemove", resize);
       window.removeEventListener("mouseup", stopResizing);
     };
-  }, [resize, stopResizing]);
+  }, [isResizing, resize, stopResizing]);
 
-  // 🔥 BUSCA AUTOMÁTICA (Polling)
   useEffect(() => {
     let isMounted = true;
     const fetchLatestChats = async () => {
@@ -64,34 +88,56 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                 const data = await res.json();
                 if (isMounted) {
                     setLocalChats(prevChats => {
+                        if (JSON.stringify(prevChats) === JSON.stringify(data)) return prevChats;
                         return data.map((c: any) => {
-                             if (selectedChat && c.id === selectedChat.id) return { ...c, unreadCount: 0 };
+                             if (activeChat && c.id === activeChat.id) return { ...c, unreadCount: 0 };
                              return c;
                         });
                     });
                 }
             }
-        } catch (error) {
-            console.error("Erro ao atualizar sidebar:", error);
-        }
+        } catch (error) { console.error(error); }
     };
-    const interval = setInterval(fetchLatestChats, 2000);
+    const interval = setInterval(fetchLatestChats, 4000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [startDate, endDate, selectedChat]);
+  }, [startDate, endDate, activeChat]);
 
-  // Marca como lido
   useEffect(() => {
-    if (selectedChat) {
+    if (activeChat) {
       fetch('/api/chat/read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId: selectedChat.id })
+        body: JSON.stringify({ chatId: activeChat.id })
       }).catch(err => console.error(err));
-      setLocalChats(prev => prev.map(c => c.id === selectedChat.id ? { ...c, unreadCount: 0 } : c));
+      setLocalChats(prev => prev.map(c => c.id === activeChat.id ? { ...c, unreadCount: 0 } : c));
     }
-  }, [selectedChat]);
+  }, [activeChat?.id]);
 
   const handleFilter = () => {
       router.push(`/?startDate=${startDate}&endDate=${endDate}`);
+  };
+
+  const handleChatClick = (chatId: string) => {
+    const clickedChat = localChats.find(c => c.id === chatId);
+    if (clickedChat) {
+        setActiveChat({ ...clickedChat, messages: clickedChat.messages || [] });
+        const params = new URLSearchParams(window.location.search);
+        params.set('chatId', chatId);
+        window.history.pushState(null, '', `/?${params.toString()}`);
+    }
+  };
+
+  // --- FUNÇÃO DE FECHAR O CHAT ---
+  const handleCloseChat = () => {
+      setActiveChat(null);
+      const params = new URLSearchParams(window.location.search);
+      params.delete('chatId');
+      window.history.pushState(null, '', `/?${params.toString()}`);
+  }
+
+  // --- FUNÇÃO PARA RESETAR ESTADO AO NAVEGAR ---
+  const handleNavigation = () => {
+      setActiveChat(null);
+      // Se precisar forçar algo mais, coloque aqui
   };
 
   const getFlagColor = (level: number) => {
@@ -103,14 +149,16 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
-      {/* --- SIDEBAR --- */}
+      {/* SIDEBAR */}
       <aside 
         ref={sidebarRef}
-        className={`flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex w-full'} md:w-auto`}
-        style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? sidebarWidth : '100%' }}
+        className={`flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0 z-20 
+            ${activeChat ? 'hidden md:flex' : 'flex w-full'} 
+            md:w-auto transition-all duration-75`}
+        style={{ width: isClient && window.innerWidth >= 768 ? sidebarWidth : undefined }}
       >
-        <div className="p-4 border-b border-gray-800">
-          <h1 className="text-xl font-bold text-emerald-400 mb-4 truncate">Nemesis Chat</h1>
+        <div className="p-4 border-b border-gray-800 flex-shrink-0">
+          <h1 className="text-xl font-bold text-emerald-400 mb-4 truncate cursor-default">Nemesis Chat</h1>
           <div className="relative">
             <Search className="absolute left-3 top-2.5 text-gray-500" size={18} />
             <input type="text" placeholder="Buscar cliente..." className="w-full bg-gray-800 text-sm text-white rounded-lg pl-10 pr-4 py-2 border border-gray-700 focus:outline-none focus:border-emerald-500"/>
@@ -119,43 +167,54 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {localChats.map((chat) => (
-            <Link key={chat.id} href={`/?chatId=${chat.id}&startDate=${startDate}&endDate=${endDate}`} className={`block p-4 transition border-b border-gray-800/50 group ${selectedChat?.id === chat.id ? 'bg-gray-800 border-l-4 border-l-emerald-500' : 'hover:bg-gray-800/50'}`}>
-              <div className="flex justify-between items-start mb-1">
+            <div 
+                key={chat.id} 
+                onClick={() => handleChatClick(chat.id)}
+                className={`block p-4 transition border-b border-gray-800/50 group cursor-pointer 
+                    ${activeChat?.id === chat.id ? 'bg-gray-800 border-l-4 border-l-emerald-500' : 'hover:bg-gray-800/50'}`}
+            >
+              <div className="flex justify-between items-start mb-1 pointer-events-none">
                 <div className="flex items-center gap-2 flex-1 truncate pr-2">
                     {chat.urgencyLevel > 1 && <span className={`h-2 w-2 rounded-full shrink-0 ${getFlagColor(chat.urgencyLevel)}`}></span>}
-                    <h3 className={`font-semibold text-sm truncate ${selectedChat?.id === chat.id ? 'text-white' : 'text-gray-200'}`}>{chat.customerName || 'Cliente'}</h3>
+                    <h3 className={`font-semibold text-sm truncate ${activeChat?.id === chat.id ? 'text-white' : 'text-gray-200'}`}>{chat.customerName || 'Cliente'}</h3>
                 </div>
                 <span className="text-[10px] text-gray-500 whitespace-nowrap ml-2">
                   {chat.lastMessageTime ? new Date(chat.lastMessageTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                 </span>
               </div>
-              <div className="flex justify-between items-center mt-1">
-                <p className={`text-xs truncate w-full pr-2 ${selectedChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>{chat.lastMessagePreview}</p>
-                {chat.unreadCount > 0 && chat.id !== selectedChat?.id && (
+              <div className="flex justify-between items-center mt-1 pointer-events-none">
+                <p className={`text-xs truncate w-full pr-2 ${activeChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>{chat.lastMessagePreview}</p>
+                {chat.unreadCount > 0 && chat.id !== activeChat?.id && (
                   <span className="bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full shadow-lg shadow-blue-500/40 animate-pulse">{chat.unreadCount}</span>
                 )}
               </div>
-            </Link>
+            </div>
           ))}
           {localChats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Nenhum atendimento neste período.</div>}
         </div>
 
-        {/* RODAPÉ DA SIDEBAR ATUALIZADO */}
-        <div className="p-4 border-t border-gray-800 bg-gray-900 space-y-2">
-           
-           {/* 👇 Link para Gestão de Usuários (Só aparece se for ADMIN) */}
+        {/* RODAPÉ DA SIDEBAR */}
+        <div className="p-4 border-t border-gray-800 bg-gray-900 space-y-2 flex-shrink-0">
            {isAdmin && (
-               <Link href="/admin/users" className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group">
+               // AQUI ESTÁ A CORREÇÃO: onClick={handleNavigation}
+               <Link href="/admin/users" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group cursor-pointer z-30 relative">
                   <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-emerald-500/50 transition">
                     <Settings size={16} />
                   </div>
                   <div className="flex-1"><p className="text-sm font-medium">Gestão de Equipe</p></div>
                </Link>
            )}
-
-           <Link href="/profile" className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition overflow-hidden">
-              <div className="w-8 h-8 rounded-full bg-emerald-600 flex-shrink-0 flex items-center justify-center text-xs font-bold">
-                 {session?.user?.name?.charAt(0) || 'U'}
+           
+           {/* AQUI TAMBÉM: onClick={handleNavigation} */}
+           <Link href="/profile" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition overflow-hidden cursor-pointer z-30 relative">
+              <div className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 flex-shrink-0 overflow-hidden flex items-center justify-center">
+                 {avatarUrl ? (
+                    <img src={avatarUrl} alt="Perfil" className="w-full h-full object-cover" />
+                 ) : (
+                    <div className="w-full h-full bg-emerald-600 flex items-center justify-center text-xs font-bold text-white">
+                        {session?.user?.name?.charAt(0) || 'U'}
+                    </div>
+                 )}
               </div>
               <div className="flex-1 truncate">
                  <p className="text-sm font-medium truncate">{session?.user?.name || 'Usuário'}</p>
@@ -170,13 +229,23 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
         </div>
       </aside>
 
-      {/* --- ÁREA PRINCIPAL --- */}
-      <main className={`flex-col h-screen overflow-hidden bg-gray-950 flex-1 ${selectedChat ? 'flex w-full' : 'hidden md:flex'}`}>
-        {selectedChat ? (
-          <ChatWindow chat={selectedChat} initialMessages={selectedChat.messages} />
+      {/* ÁREA PRINCIPAL */}
+      <main className={`flex-col h-screen overflow-hidden bg-gray-950 flex-1 relative z-10 
+          ${activeChat ? 'flex w-full' : 'hidden md:flex'}`}>
+        
+        {activeChat ? (
+            <div className="h-full w-full flex flex-col">
+                 <div className="md:hidden h-14 bg-gray-900 border-b border-gray-800 flex items-center px-4">
+                    <button onClick={handleCloseChat} className="text-gray-400 hover:text-white flex items-center gap-2">
+                        <ChevronRight className="rotate-180" size={20} /> Voltar
+                    </button>
+                 </div>
+                 {/* PASSAMOS O onClose AQUI */}
+                 <ChatWindow chat={activeChat} initialMessages={activeChat.messages || []} onClose={handleCloseChat} />
+            </div>
         ) : (
           <>
-            <header className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-8 bg-gray-900 flex-shrink-0">
+            <header className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-8 bg-gray-900 flex-shrink-0 relative z-40">
               <h2 className="text-lg font-semibold text-gray-200 flex items-center gap-2">
                 <BarChart3 size={20} className="text-emerald-500"/> Visão Geral
               </h2>
@@ -191,19 +260,18 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                     <button onClick={handleFilter} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-1.5 rounded transition font-medium flex items-center gap-1">
                         <Filter size={12}/> Filtrar
                     </button>
-                </div>
-                <div className="h-6 w-px bg-gray-800 mx-1"></div>
-                <LogoutButton />
+                 </div>
+                 <div className="h-6 w-px bg-gray-800 mx-1"></div>
+                 <LogoutButton />
               </div>
             </header>
             
-            <div className="md:hidden p-4 bg-gray-900 border-b border-gray-800 flex flex-col gap-2">
+            <div className="md:hidden p-4 bg-gray-900 border-b border-gray-800 flex flex-col gap-2 relative z-30">
                <button onClick={handleFilter} className="bg-emerald-600 w-full py-2 rounded text-xs font-bold uppercase">Aplicar Filtro</button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative z-0">
               
-              {/* CARD DE AÇÃO RÁPIDA PARA ADMIN (NOVO) */}
               {isAdmin && (
                   <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-gray-900 to-gray-800 border border-gray-700 flex items-center justify-between">
                       <div className="flex items-center gap-4">
@@ -215,12 +283,13 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                               <p className="text-sm text-gray-400">Você tem acesso total para gerenciar a equipe.</p>
                           </div>
                       </div>
-                      <Link href="/admin/users" className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg text-sm font-bold transition">
+                      <Link href="/admin/users" onClick={handleNavigation} className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg text-sm font-bold transition">
                           Gerenciar Usuários
                       </Link>
                   </div>
               )}
 
+              {/* KPIs e Gráficos */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
                    <div className="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><Users size={20} /></div>
@@ -241,31 +310,31 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-                  <div className="lg:col-span-2 bg-gray-900 rounded-xl border border-gray-800 p-4 md:p-6">
-                     <h3 className="text-sm font-bold text-gray-400 mb-4">Volume de Mensagens (Período Selecionado)</h3>
-                     <MetricsChart data={chartData} />
+                  <div className="lg:col-span-2 bg-gray-900 rounded-xl border border-gray-800 p-4 md:p-6 min-h-[350px]">
+                      <h3 className="text-sm font-bold text-gray-400 mb-4">Volume de Mensagens (Período Selecionado)</h3>
+                      <MetricsChart data={chartData} />
                   </div>
 
                   <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 md:p-6">
-                     <h3 className="text-sm font-bold text-gray-400 mb-4">Performance por Setor</h3>
-                     <div className="space-y-4">
-                        {teamStats.length > 0 ? teamStats.map((stat, idx) => (
-                            <div key={idx} className="flex items-center justify-between group">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-xs font-bold text-emerald-500 border border-gray-700">
-                                        {idx + 1}
-                                    </div>
-                                    <span className="text-sm font-medium">{stat.name}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-bold">{stat.count}</span>
-                                    <span className="text-[10px] text-gray-500">msgs</span>
-                                </div>
-                            </div>
-                        )) : (
-                            <p className="text-xs text-gray-500 text-center py-4">Sem dados de equipe.</p>
-                        )}
-                     </div>
+                      <h3 className="text-sm font-bold text-gray-400 mb-4">Performance por Setor</h3>
+                      <div className="space-y-4">
+                         {teamStats.length > 0 ? teamStats.map((stat, idx) => (
+                             <div key={idx} className="flex items-center justify-between group">
+                                 <div className="flex items-center gap-3">
+                                     <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-xs font-bold text-emerald-500 border border-gray-700">
+                                         {idx + 1}
+                                     </div>
+                                     <span className="text-sm font-medium">{stat.name}</span>
+                                 </div>
+                                 <div className="flex items-center gap-2">
+                                     <span className="text-sm font-bold">{stat.count}</span>
+                                     <span className="text-[10px] text-gray-500">msgs</span>
+                                 </div>
+                             </div>
+                         )) : (
+                             <p className="text-xs text-gray-500 text-center py-4">Sem dados de equipe.</p>
+                         )}
+                      </div>
                   </div>
               </div>
             </div>

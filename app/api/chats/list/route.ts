@@ -9,40 +9,66 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json([], { status: 401 });
+    
+    // Log de Debug (Verifique isso no terminal do VS Code)
+    console.log("API Chats - User:", session?.user?.email);
 
-    // Pega os dados do usuário logado
+    if (!session) {
+        return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    }
+
     const userRole = (session.user as any)?.role || 'AGENT';
-    const userDept = (session.user as any)?.department; // Ex: 'SUPORTE', 'FINANCEIRO'
+    const userDept = (session.user as any)?.department; 
 
-    // --- LÓGICA DE SEGURANÇA ---
+    // 1. CORREÇÃO DE QUERY: Evita passar undefined para o Prisma
     let whereCondition: any = {};
 
     if (userRole !== 'ADMIN') {
-        // Se não for ADMIN, filtra ESTRITAMENTE pelo departamento do usuário.
-        // Se o usuário for do "GERAL", ele verá "GERAL" (Triagem).
-        // Se for "SUPORTE", verá apenas "SUPORTE".
-        whereCondition = { department: userDept };
+        // Se o usuário não tem departamento, ele não deve ver nada ou deve ver algo padrão?
+        // Aqui assumimos que se for null, filtra por null (ou evita erro de undefined)
+        if (userDept) {
+            whereCondition = { department: userDept };
+        } else {
+            // Opcional: Se não tem departamento, talvez não deva ver chamados específicos
+            // Descomente a linha abaixo se quiser bloquear usuários sem setor
+            // return NextResponse.json([], { status: 200 });
+        }
     }
-    // (Se for ADMIN, o whereCondition fica vazio e traz tudo)
-    // ---------------------------
 
     const { searchParams } = new URL(req.url);
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
 
+    // 2. CORREÇÃO DE DATAS: Proteção contra "Invalid Date"
     const now = new Date();
     const defaultStart = new Date(); 
     defaultStart.setDate(now.getDate() - 30);
     
-    const startDate = startDateParam ? new Date(startDateParam) : defaultStart;
-    const endDate = endDateParam ? new Date(endDateParam) : now;
+    // Verifica se a string é válida e não é "undefined" ou "null" texto
+    let startDate = (startDateParam && startDateParam !== 'undefined' && startDateParam !== 'null') 
+        ? new Date(startDateParam) 
+        : defaultStart;
+    
+    let endDate = (endDateParam && endDateParam !== 'undefined' && endDateParam !== 'null') 
+        ? new Date(endDateParam) 
+        : now;
+
+    // Se a data for inválida (ex: usuário digitou bobagem na URL), fallback para o padrão
+    if (isNaN(startDate.getTime())) startDate = defaultStart;
+    if (isNaN(endDate.getTime())) endDate = now;
+
     startDate.setHours(0,0,0,0);
     endDate.setHours(23,59,59,999);
 
+    console.log("API Chats - Filtro:", { 
+        dept: whereCondition.department, 
+        start: startDate.toISOString(), 
+        end: endDate.toISOString() 
+    });
+
     const chatsRaw = await prisma.chat.findMany({
       where: {
-        ...whereCondition, // Aplica o filtro aqui
+        ...whereCondition,
         lastMessageAt: { gte: startDate, lte: endDate }
       },
       include: {
@@ -57,7 +83,6 @@ export async function GET(req: Request) {
       ],
     });
 
-    // Formatação (igual ao anterior)
     const chats = chatsRaw.map(chat => {
         const lastMsg = chat.messages[0];
         let preview = "Sem mensagens";
@@ -78,8 +103,14 @@ export async function GET(req: Request) {
 
     return NextResponse.json(chats, { headers: { 'Cache-Control': 'no-store, no-cache' } });
 
-  } catch (error) {
-    console.error("Erro API Chats:", error);
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+  } catch (error: any) {
+    // Log detalhado do erro real
+    console.error("❌ ERRO FATAL API CHATS:", error);
+    
+    // Retorna o erro em JSON para vermos no Network Tab se necessário
+    return NextResponse.json(
+        { error: 'Erro interno ao buscar chats', details: error.message }, 
+        { status: 500 }
+    );
   }
 }

@@ -1,13 +1,10 @@
 // app/api/auth/[...nextauth]/route.ts
-import NextAuth, { AuthOptions } from "next-auth";
+import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
-const useSecureCookies = process.env.NODE_ENV === 'production';
-const cookiePrefix = useSecureCookies ? '__Secure-' : '';
-
-export const authOptions: AuthOptions = {
+export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -16,46 +13,50 @@ export const authOptions: AuthOptions = {
         password: { label: "Senha", type: "password" }
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        if (!credentials?.email || !credentials?.password) {
+          throw new Error('Dados faltando');
+        }
         
         const user = await prisma.user.findUnique({
           where: { email: credentials.email }
         });
 
-        if (!user) return null;
+        if (!user) {
+          throw new Error('Usuário não encontrado');
+        }
 
         const passwordMatch = await bcrypt.compare(credentials.password, user.password);
 
-        if (!passwordMatch) return null;
+        if (!passwordMatch) {
+          throw new Error('Senha incorreta');
+        }
 
-        // Retornamos tudo o que queremos salvar na sessão
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          image: user.avatar,
-          role: user.role,           // <--- IMPORTANTE
-          department: user.department // <--- IMPORTANTE
-        };
+        // Retornamos o usuário, mas o callback JWT vai filtrar o que é pesado
+        return user;
       }
     })
   ],
   
-  // AQUI A MÁGICA: Passamos os dados do login para o Token e do Token para a Sessão
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = user.role;
-        token.department = user.department;
+        token.id = user.id;
+        token.role = (user as any).role;
+        token.department = (user as any).department;
+        
+        // ❌ REMOVIDO: Não podemos salvar Base64 no token, estoura o limite de 4kb
+        // token.avatar = (user as any).avatar; 
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        // @ts-ignore
-        session.user.role = token.role;
-        // @ts-ignore
-        session.user.department = token.department;
+        (session.user as any).id = token.id as string;
+        (session.user as any).role = token.role as string;
+        (session.user as any).department = token.department as string;
+        
+        // ❌ REMOVIDO: O avatar não virá mais pela sessão
+        // (session.user as any).avatar = token.avatar as string;
       }
       return session;
     }
@@ -67,19 +68,7 @@ export const authOptions: AuthOptions = {
   
   session: {
     strategy: "jwt",
-    maxAge: 15 * 60, 
-  },
-
-  cookies: {
-    sessionToken: {
-      name: `${cookiePrefix}next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: useSecureCookies,
-      }
-    }
+    maxAge: 30 * 24 * 60 * 60,
   },
 
   secret: process.env.NEXTAUTH_SECRET,

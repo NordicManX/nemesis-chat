@@ -1,207 +1,207 @@
 // app/profile/page.tsx
 'use client';
-import { useSession, signOut } from 'next-auth/react';
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
 
-const DEPARTMENTS = ["GERAL", "FINANCEIRO", "SUPORTE", "VENDAS"];
+import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
+import { ArrowLeft, Save, User, Mail, Lock, Camera, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 
 export default function ProfilePage() {
-  const { data: session, update } = useSession();
+  const { data: session, update } = useSession(); 
   
-  // --- ESTADOS: DADOS PESSOAIS ---
-  const [name, setName] = useState('');
-  const [avatar, setAvatar] = useState('');
-  const [profileMsg, setProfileMsg] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  // --- ESTADOS: TROCA DE SENHA ---
-  const [currentPass, setCurrentPass] = useState('');
-  const [newPass, setNewPass] = useState('');
-  const [passMsg, setPassMsg] = useState('');
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    avatar: '' 
+  });
 
-  // --- ESTADOS: CRIAR NOVO USUÁRIO ---
-  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'AGENT', department: 'GERAL' });
-  const [userMsg, setUserMsg] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Carrega dados iniciais do usuário logado
+  // 1. Tenta pegar dados da API (Dados mais frescos do banco)
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  // 2. SAFETY CHECK: Se a API demorar, pega da Sessão (Login local)
+  // Isso garante que os campos nunca fiquem vazios visualmente
   useEffect(() => {
     if (session?.user) {
-      setName(session.user.name || '');
-      // @ts-ignore
-      setAvatar(session.user.avatar || '');
+        setFormData(prev => ({
+            ...prev,
+            name: prev.name || session.user.name || '',
+            email: prev.email || session.user.email || '',
+            // @ts-ignore
+            avatar: prev.avatar || session.user.avatar || ''
+        }));
     }
   }, [session]);
 
-  // 1. Atualizar Perfil (Nome e Foto)
-  async function handleUpdateProfile(e: React.FormEvent) {
-    e.preventDefault();
-    setProfileMsg('Salvando...');
-    const res = await fetch('/api/profile/update', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ email: session?.user?.email, name, avatar })
-    });
-
-    if (res.ok) {
-      setProfileMsg('✅ Perfil atualizado!');
-      await update({ ...session, user: { ...session?.user, name, avatar } });
-    } else {
-      setProfileMsg('❌ Erro ao salvar.');
+  async function fetchProfile() {
+    try {
+      const res = await fetch('/api/profile');
+      if (res.ok) {
+        const data = await res.json();
+        setFormData(prev => ({
+            ...prev,
+            name: data.name || prev.name || '',
+            email: data.email || prev.email || '',
+            password: '',
+            avatar: data.avatar || prev.avatar || ''
+        }));
+      }
+    } catch (error) {
+        console.error("Erro ao carregar perfil");
+    } finally {
+        setLoading(false);
     }
   }
 
-  // 2. Mudar Senha
-  async function handleChangePassword(e: React.FormEvent) {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          if (file.size > 1024 * 1024) { 
+              alert("A imagem deve ter no máximo 1MB.");
+              return;
+          }
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              setFormData(prev => ({ ...prev, avatar: reader.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    setPassMsg('Processando...');
-    const res = await fetch('/api/profile/password', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        email: session?.user?.email,
-        currentPassword: currentPass,
-        newPassword: newPass
-      })
-    });
-    const data = await res.json();
-    if (data.error) setPassMsg(`❌ ${data.error}`);
-    else {
-      setPassMsg('✅ Senha alterada! Faça login novamente.');
-      setTimeout(() => signOut(), 2000);
+    setSaving(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Erro ao salvar');
+
+      setMsg({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+      
+      // Atualiza a sessão do navegador para refletir mudanças na hora
+      await update({
+          ...session,
+          user: {
+              ...session?.user,
+              name: formData.name,
+              email: formData.email,
+              avatar: formData.avatar
+          }
+      });
+      
+      setFormData(prev => ({ ...prev, password: '' }));
+
+    } catch (error: any) {
+      setMsg({ type: 'error', text: error.message });
+    } finally {
+      setSaving(false);
     }
   }
 
-  // 3. Criar Novo Usuário (Com Setor)
-  async function handleCreateUser(e: React.FormEvent) {
-    e.preventDefault();
-    setUserMsg('Criando...');
-    const res = await fetch('/api/users/create', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(newUser)
-    });
-    const data = await res.json();
-    if (data.error) setUserMsg(`❌ ${data.error}`);
-    else {
-      setUserMsg('✅ Usuário criado com sucesso!');
-      setNewUser({ name: '', email: '', password: '', role: 'AGENT', department: 'GERAL' });
-    }
-  }
+  if (loading) return <div className="h-screen bg-gray-950 flex items-center justify-center text-emerald-500"><Loader2 className="animate-spin" size={40}/></div>;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
-      <header className="flex justify-between items-center mb-8 pb-4 border-b border-gray-800">
-        <h1 className="text-3xl font-bold text-emerald-400">Meu Perfil</h1>
-        <Link href="/" className="text-gray-400 hover:text-white">← Voltar ao Dashboard</Link>
-      </header>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <div className="min-h-screen bg-gray-950 text-white p-6 md:p-12">
+      <div className="max-w-2xl mx-auto">
         
-        {/* CARTÃO 1: DADOS PESSOAIS */}
-        <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <h2 className="text-xl font-bold mb-4">👤 Dados Pessoais</h2>
-          <form onSubmit={handleUpdateProfile} className="space-y-4">
-            <div className="flex justify-center mb-4">
-               <img 
-                 src={avatar || "https://ui-avatars.com/api/?background=random&name=" + name} 
-                 alt="Avatar" 
-                 className="w-20 h-20 rounded-full border-2 border-emerald-500 object-cover"
-               />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400">Nome de Exibição</label>
-              <input type="text" className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                value={name} onChange={e => setName(e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400">URL da Foto (Link)</label>
-              <input type="text" placeholder="https://..." className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1 text-xs"
-                value={avatar} onChange={e => setAvatar(e.target.value)} />
-            </div>
-            {profileMsg && <p className="text-sm font-bold text-emerald-400">{profileMsg}</p>}
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-bold transition">
-              Salvar Dados
-            </button>
-          </form>
+        <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4">
+             <Link href="/" className="p-2 bg-gray-800 hover:bg-gray-700 rounded-full transition"><ArrowLeft size={20}/></Link>
+             <div>
+                <h1 className="text-2xl font-bold flex items-center gap-2">Minha Conta</h1>
+                <p className="text-sm text-gray-400">Gerencie suas informações pessoais</p>
+             </div>
         </div>
 
-        {/* CARTÃO 2: SEGURANÇA */}
-        <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <h2 className="text-xl font-bold mb-4">🔐 Segurança</h2>
-          <form onSubmit={handleChangePassword} className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400">Senha Atual</label>
-              <input type="password" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                value={currentPass} onChange={e => setCurrentPass(e.target.value)} />
+        {msg && (
+            <div className={`p-4 rounded-lg mb-6 flex items-center gap-2 animate-fade-in ${msg.type === 'success' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
+                {msg.type === 'success' ? <CheckCircle size={20}/> : <AlertCircle size={20}/>}
+                {msg.text}
             </div>
-            <div>
-              <label className="block text-sm text-gray-400">Nova Senha</label>
-              <input type="password" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                value={newPass} onChange={e => setNewPass(e.target.value)} />
-            </div>
-            {passMsg && <p className="text-sm font-bold">{passMsg}</p>}
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 py-2 rounded font-bold">
-              Atualizar Senha
-            </button>
-          </form>
-          <div className="mt-8 border-t border-gray-700 pt-4">
-             <button onClick={() => signOut()} className="w-full border border-red-500 text-red-400 hover:bg-red-500/10 py-2 rounded transition">
-                Sair do Sistema
-             </button>
-          </div>
+        )}
+
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 md:p-8 shadow-2xl">
+            <form onSubmit={handleSave} className="space-y-6">
+                
+                <div className="flex flex-col items-center gap-4 mb-6">
+                    <div className="relative group">
+                        <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-gray-800 bg-gray-700 flex items-center justify-center">
+                            {formData.avatar ? (
+                                <img src={formData.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                            ) : (
+                                <User size={64} className="text-gray-500" />
+                            )}
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="absolute bottom-0 right-0 p-2 bg-emerald-600 hover:bg-emerald-500 rounded-full text-white shadow-lg transition transform hover:scale-110"
+                            title="Alterar Foto"
+                        >
+                            <Camera size={20} />
+                        </button>
+                        <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
+                    </div>
+                    <p className="text-xs text-gray-500">Clique na câmera para alterar (Máx 1MB)</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="md:col-span-2">
+                        <label className="block text-xs uppercase font-bold text-gray-500 mb-2 flex items-center gap-2"><User size={14}/> Nome Completo</label>
+                        <input 
+                            required 
+                            type="text" 
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none transition"
+                            placeholder="Digite seu nome"
+                            value={formData.name} 
+                            onChange={e => setFormData({...formData, name: e.target.value})}
+                        />
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <label className="block text-xs uppercase font-bold text-gray-500 mb-2 flex items-center gap-2"><Mail size={14}/> Email de Acesso</label>
+                        <input 
+                            required 
+                            type="email" 
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none transition"
+                            placeholder="Digite seu email"
+                            value={formData.email} 
+                            onChange={e => setFormData({...formData, email: e.target.value})}
+                        />
+                    </div>
+
+                    <div className="md:col-span-2 pt-4 border-t border-gray-800">
+                        <label className="block text-xs uppercase font-bold text-emerald-500 mb-2 flex items-center gap-2"><Lock size={14}/> Alterar Senha (Opcional)</label>
+                        <input type="password" className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none transition placeholder-gray-600"
+                            placeholder="Deixe em branco para manter a atual"
+                            value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})}
+                        />
+                    </div>
+                </div>
+
+                <div className="flex justify-end pt-4">
+                    <button type="submit" disabled={saving} className={`bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 rounded-lg font-bold flex items-center gap-2 transition shadow-lg shadow-emerald-900/20 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        {saving ? <Loader2 className="animate-spin" size={20}/> : <Save size={20} />} 
+                        {saving ? 'Salvando...' : 'Salvar Alterações'}
+                    </button>
+                </div>
+            </form>
         </div>
-
-        {/* CARTÃO 3: CRIAR NOVO USUÁRIO (CADASTRAR EQUIPE) */}
-        <div className="col-span-1 md:col-span-2 bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <h2 className="text-xl font-bold mb-4">👥 Cadastrar Novo Membro</h2>
-          <p className="text-xs text-gray-500 mb-4">Adicione membros à sua equipe.</p>
-          
-          <form onSubmit={handleCreateUser} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-sm text-gray-400">Nome</label>
-                    <input type="text" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                        value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
-                </div>
-                <div>
-                    <label className="block text-sm text-gray-400">Email</label>
-                    <input type="email" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                        value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                    <label className="block text-sm text-gray-400">Senha Inicial</label>
-                    <input type="text" required className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1"
-                        value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
-                </div>
-                <div>
-                    <label className="block text-sm text-gray-400">Cargo</label>
-                    <select className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1 h-[42px]"
-                        value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
-                        <option value="AGENT">Agente</option>
-                        <option value="ADMIN">Admin</option>
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm text-gray-400">Setor</label>
-                    <select className="w-full bg-gray-900 border border-gray-600 rounded p-2 mt-1 h-[42px]"
-                        value={newUser.department} onChange={e => setNewUser({...newUser, department: e.target.value})}>
-                        {DEPARTMENTS.map(dept => (
-                            <option key={dept} value={dept}>{dept}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-
-            {userMsg && <p className="text-sm font-bold">{userMsg}</p>}
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-bold transition">
-              Criar Usuário
-            </button>
-          </form>
-        </div>
-
       </div>
     </div>
   );
