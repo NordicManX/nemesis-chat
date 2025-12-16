@@ -2,7 +2,24 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic'; // Adicione isso para garantir que não faça cache
+
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+
+// Função auxiliar para pegar o link do arquivo
+async function getTelegramFileUrl(fileId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`);
+    const data = await res.json();
+    
+    if (data.ok && data.result.file_path) {
+      return `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${data.result.file_path}`;
+    }
+  } catch (e) {
+    console.error('Erro ao buscar arquivo do Telegram:', e);
+  }
+  return null;
+}
 
 export async function POST(req: Request) {
   try {
@@ -28,7 +45,7 @@ export async function POST(req: Request) {
       where: { telegramId },
       update: { 
         customerName,
-        lastMessageAt: new Date() // Atualiza data para subir na lista
+        lastMessageAt: new Date() 
       }, 
       create: {
         telegramId,
@@ -38,7 +55,7 @@ export async function POST(req: Request) {
     });
 
     let msgContent = '';
-    let msgType = 'TEXT'; // Certifique-se que no schema.prisma isso é String ou Enum compatível
+    let msgType = 'TEXT'; 
     let msgMediaUrl = null;
 
     // --- LÓGICA DE CONTEÚDO ---
@@ -51,25 +68,24 @@ export async function POST(req: Request) {
     else if (message.photo) {
       msgType = 'IMAGE';
       msgContent = '📷 Foto'; 
-      // Pega a última foto do array (maior resolução)
       const photo = message.photo[message.photo.length - 1];
       msgMediaUrl = await getTelegramFileUrl(photo.file_id);
     }
     // C. Documento (Prints enviados como arquivo)
     else if (message.document) {
-      msgType = 'DOCUMENT'; // Se seu prisma não tiver esse Enum, mude para 'TEXT' ou 'IMAGE'
+      msgType = 'DOCUMENT'; 
       msgContent = `📎 Arquivo: ${message.document.file_name || 'Sem nome'}`;
       msgMediaUrl = await getTelegramFileUrl(message.document.file_id);
     }
     // D. Áudio/Voz
     else if (message.voice || message.audio) {
-      msgType = 'AUDIO';
+      msgType = 'AUDIO'; // Se não tiver AUDIO no schema, use DOCUMENT ou TEXT
       msgContent = '🎤 Áudio';
       const fileId = message.voice ? message.voice.file_id : message.audio.file_id;
       msgMediaUrl = await getTelegramFileUrl(fileId);
     }
 
-    // Se não identificou conteúdo suportado, apenas confirma recebimento para não travar o bot
+    // Se não identificou conteúdo suportado, apenas confirma recebimento
     if (!msgContent && !msgMediaUrl) {
         return NextResponse.json({ ok: true });
     }
@@ -78,11 +94,16 @@ export async function POST(req: Request) {
     await prisma.message.create({
       data: {
         content: msgContent,
-        type: msgType as any, // Cast se estiver usando Enums no Prisma
+        type: msgType as any,
         mediaUrl: msgMediaUrl,
         sender: 'CUSTOMER',
         chatId: chatRecord.id,
         isRead: false,
+        
+        // --- O PREGO QUE FALTAVA ---
+        // Salvamos o ID do Telegram. Sem isso, não dá pra responder citando a mensagem.
+        telegramMessageId: message.message_id.toString() 
+        // ---------------------------
       },
     });
 
@@ -90,23 +111,6 @@ export async function POST(req: Request) {
 
   } catch (error) {
     console.error('Erro Webhook:', error);
-    // Retorna 200 mesmo com erro para evitar que o Telegram fique re-enviando a mensagem infinitamente
     return NextResponse.json({ ok: true }); 
   }
-}
-
-// Função auxiliar para pegar o link do arquivo
-async function getTelegramFileUrl(fileId: string): Promise<string | null> {
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`);
-    const data = await res.json();
-    
-    if (data.ok && data.result.file_path) {
-      // ⚠️ IMPORTANTE: Esse link contém seu Token. Veja aviso abaixo.
-      return `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${data.result.file_path}`;
-    }
-  } catch (e) {
-    console.error('Erro ao buscar arquivo do Telegram:', e);
-  }
-  return null;
 }

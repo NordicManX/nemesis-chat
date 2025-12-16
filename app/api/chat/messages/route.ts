@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 
     if (!chatId) return NextResponse.json({ error: 'Chat ID faltando' }, { status: 400 });
 
-    // Verificação de permissão (Admin vê tudo, Agente só vê seu setor)
+    // Verificação de permissão
     if (userRole !== 'ADMIN') {
        const chat = await prisma.chat.findUnique({
          where: { id: chatId },
@@ -28,7 +28,6 @@ export async function GET(req: Request) {
 
        if (!chat) return NextResponse.json({ error: 'Chat não encontrado' }, { status: 404 });
 
-       // Se tiver departamento e não bater com o do usuário, bloqueia
        if (chat.department && userDept && chat.department !== userDept) {
            return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
        }
@@ -36,7 +35,21 @@ export async function GET(req: Request) {
 
     const messages = await prisma.message.findMany({
       where: { chatId },
-      // AJUSTE FINO: Ordena por data E por ID para desempatar milissegundos iguais
+      
+      // --- CORREÇÃO AQUI: INCLUIR A MENSAGEM RESPONDIDA ---
+      include: {
+        replyTo: {
+            select: {
+                id: true,
+                content: true,
+                sender: true,
+                type: true,
+                mediaUrl: true
+            }
+        }
+      },
+      // ----------------------------------------------------
+
       orderBy: [
         { createdAt: 'asc' },
         { id: 'asc' }

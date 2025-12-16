@@ -3,11 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react'; 
+import { useSession, signOut } from 'next-auth/react'; // Importei signOut
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
-import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2 } from 'lucide-react';
+// Importei LogOut
+import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2, LogOut } from 'lucide-react';
 
 interface DashboardProps {
   chats: any[];
@@ -164,8 +165,8 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
 
   // --- NOVA FUNÇÃO: DELETAR DA SIDEBAR ---
   const handleDeleteChatFromSidebar = async (e: React.MouseEvent, chatId: string) => {
-    e.stopPropagation(); // Impede que abra o chat ao clicar no excluir
-    setOpenMenuId(null); // Fecha o menu
+    e.stopPropagation(); 
+    setOpenMenuId(null); 
 
     if (!confirm("⚠️ Tem certeza que deseja EXCLUIR esta conversa?\n\nTodo o histórico será apagado.")) {
         return;
@@ -227,7 +228,7 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   };
 
   return (
-    <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+    <div className={`flex h-screen w-full bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
       {/* --- MODAL NOVO CHAT --- */}
       {isNewChatOpen && (
@@ -296,7 +297,7 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
       {/* SIDEBAR */}
       <aside 
         ref={sidebarRef}
-        className={`flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0 z-20 
+        className={`flex-col border-r border-gray-800 bg-gray-900 relative flex-shrink-0 z-20 h-full
             ${activeChat ? 'hidden md:flex' : 'flex w-full'} 
             md:w-auto transition-all duration-75`}
         style={{ width: isClient && window.innerWidth >= 768 ? sidebarWidth : undefined }}
@@ -324,7 +325,8 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {/* LISTA DE CHATS - SCROLL INVISÍVEL */}
+        <div className="flex-1 overflow-y-auto no-scrollbar">
           {localChats.map((chat) => (
             <div 
                 key={chat.id} 
@@ -407,6 +409,17 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
               </div>
               <ChevronRight size={16} className="text-gray-600 flex-shrink-0" />
            </Link>
+
+           {/* --- BOTÃO SAIR (MOBILE) --- */}
+           <button 
+                onClick={() => signOut()} 
+                className="md:hidden flex items-center gap-3 w-full hover:bg-red-900/10 p-2 rounded-lg transition text-gray-400 hover:text-red-400 group cursor-pointer mt-2 border-t border-gray-800 pt-2"
+           >
+                <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-red-500/50 transition">
+                    <LogOut size={16} />
+                </div>
+                <div className="flex-1 text-left"><p className="text-sm font-medium">Sair do Sistema</p></div>
+           </button>
         </div>
         
         <div onMouseDown={startResizing} className="hidden md:flex absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-emerald-500 transition-colors z-50 items-center justify-center group">
@@ -460,7 +473,8 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                <button onClick={handleFilter} className="bg-emerald-600 w-full py-2 rounded text-xs font-bold uppercase">Aplicar Filtro</button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative z-0">
+            {/* DASHBOARD SCROLL INVISÍVEL */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 no-scrollbar relative z-0">
               
               {isAdmin && (
                   <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-gray-900 to-gray-800 border border-gray-700 flex items-center justify-between">

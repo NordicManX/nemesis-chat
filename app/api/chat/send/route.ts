@@ -12,18 +12,18 @@ export async function POST(req: Request) {
     const chatId = formData.get('chatId') as string;
     const content = formData.get('content') as string;
     const file = formData.get('file') as File | null;
+    const replyToId = formData.get('replyToId') as string | null; // <--- NOVO: ID da mensagem respondida
 
     if (!chatId) return NextResponse.json({ error: 'Chat ID faltando' }, { status: 400 });
 
     const chat = await prisma.chat.findUnique({ where: { id: chatId } });
     
-    // Se não tiver ID do Telegram, salva como mensagem interna apenas
+    // Se não tiver chat, erro
     if (!chat) {
         return NextResponse.json({ error: 'Chat não encontrado' }, { status: 404 });
     }
 
-    // --- PASSO 1: SALVAR NO BANCO IMEDIATAMENTE ---
-    // Isso garante que a mensagem NÃO SUMA da tela, mesmo se o Telegram der erro.
+    // --- PASSO 1: SALVAR NO BANCO IMEDIATAMENTE (Otimista) ---
     let initialType = 'TEXT';
     let initialContent = content;
 
@@ -42,7 +42,9 @@ export async function POST(req: Request) {
         sender: 'AGENT',
         isRead: true,
         type: initialType as any,
-        mediaUrl: null 
+        mediaUrl: null,
+        replyToId: replyToId || null, // <--- NOVO: Vincula a resposta no banco
+        telegramMessageId: null // Será atualizado após envio
       }
     });
 
@@ -52,19 +54,27 @@ export async function POST(req: Request) {
       data: { lastMessageAt: new Date() }
     });
 
-    // Se não tiver token ou ID do cliente, paramos aqui (mensagem salva apenas internamente)
+    // Se não tiver token ou ID do cliente, paramos aqui
     if (!TELEGRAM_TOKEN || !chat.telegramId) {
         console.warn("⚠️ Mensagem salva, mas não enviada ao Telegram (Falta Token ou ID)");
         return NextResponse.json(savedMessage);
     }
 
-    // --- PASSO 2: ENVIAR PARA O TELEGRAM (BACKGROUND) ---
-    // Usamos setImmediate ou apenas não damos 'await' no retorno final para não travar a UI
-    // Mas aqui faremos sequencial rápido para atualizar a URL
-    
+    // --- PASSO 2: ENVIAR PARA O TELEGRAM ---
     try {
         let telegramSuccess = false;
         let finalMediaUrl = null;
+        let telegramMsgId = null; // <--- NOVO: Para guardar o ID do Telegram
+
+        // Lógica de Resposta: Busca o ID do Telegram da mensagem original
+        let replyParameters = {};
+        if (replyToId) {
+            const originalMsg = await prisma.message.findUnique({ where: { id: replyToId } });
+            if (originalMsg && originalMsg.telegramMessageId) {
+                // Prepara o parâmetro para o Telegram saber que é resposta
+                replyParameters = { reply_to_message_id: originalMsg.telegramMessageId };
+            }
+        }
 
         if (file) {
             console.log(`📤 Enviando arquivo para ID: ${chat.telegramId}`);
@@ -72,6 +82,11 @@ export async function POST(req: Request) {
             const telegramFormData = new FormData();
             telegramFormData.append('chat_id', chat.telegramId);
             if (content) telegramFormData.append('caption', content);
+
+            // Adiciona resposta se houver
+            if ((replyParameters as any).reply_to_message_id) {
+                telegramFormData.append('reply_to_message_id', (replyParameters as any).reply_to_message_id);
+            }
 
             const arrayBuffer = await file.arrayBuffer();
             const blob = new Blob([arrayBuffer], { type: file.type });
@@ -91,6 +106,8 @@ export async function POST(req: Request) {
 
             if (data.ok) {
                 telegramSuccess = true;
+                telegramMsgId = data.result.message_id.toString(); // Captura o ID
+
                 const resT = data.result;
                 let fileId = endpoint === 'sendPhoto' ? resT.photo[resT.photo.length - 1].file_id : resT.document?.file_id;
                 
@@ -103,7 +120,6 @@ export async function POST(req: Request) {
                 }
             } else {
                 console.error("❌ Erro Telegram (Arquivo):", data);
-                // Se falhar arquivo, tenta mandar texto de erro
             }
         } 
         else if (content) {
@@ -111,38 +127,59 @@ export async function POST(req: Request) {
             const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chat.telegramId, text: content }),
+                body: JSON.stringify({ 
+                    chat_id: chat.telegramId, 
+                    text: content,
+                    ...replyParameters // Espalha o ID da resposta aqui
+                }),
             });
             const data = await res.json();
-            if (data.ok) telegramSuccess = true;
+            if (data.ok) {
+                telegramSuccess = true;
+                telegramMsgId = data.result.message_id.toString(); // Captura o ID
+            }
             else console.error("❌ Erro Telegram (Texto):", data);
         }
 
         // --- PASSO 3: ATUALIZAR MENSAGEM NO BANCO ---
         if (telegramSuccess) {
-            // Se tinha arquivo, atualiza a URL e remove o texto de "Enviando..."
-            if (file) {
-                await prisma.message.update({
-                    where: { id: savedMessage.id },
-                    data: { 
-                        mediaUrl: finalMediaUrl,
-                        content: content || (initialType === 'IMAGE' ? '📷 Imagem enviada' : '📎 Arquivo enviado')
-                    }
-                });
-            }
+            await prisma.message.update({
+                where: { id: savedMessage.id },
+                data: { 
+                    mediaUrl: finalMediaUrl, // Atualiza URL se tiver arquivo
+                    telegramMessageId: telegramMsgId, // <--- NOVO: Salva ID externo
+                    // Remove texto de placeholder se for imagem
+                    content: content || (initialType === 'IMAGE' ? '📷 Imagem enviada' : '📎 Arquivo enviado')
+                }
+            });
         } else {
-            // Se falhou no Telegram (ex: chat not found), avisamos no banco
             await prisma.message.update({
                 where: { id: savedMessage.id },
                 data: { content: `⚠️ Erro envio (Telegram): ${content || 'Arquivo'}` }
             });
         }
 
-    } catch (err) {
+   } catch (err) {
         console.error("Erro processo Telegram:", err);
     }
 
-    return NextResponse.json(savedMessage);
+    // --- CORREÇÃO AQUI: ---
+    // Em vez de retornar 'savedMessage' direto, buscamos ela completa com o replyTo
+    const finalMessage = await prisma.message.findUnique({
+        where: { id: savedMessage.id },
+        include: {
+            replyTo: {
+                select: {
+                    id: true,
+                    content: true,
+                    sender: true,
+                    type: true
+                }
+            }
+        }
+    });
+
+    return NextResponse.json(finalMessage);
 
   } catch (error: any) {
     console.error('❌ ERRO CRÍTICO ROUTE:', error);
