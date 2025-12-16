@@ -20,9 +20,8 @@ export async function POST(req: Request) {
     // Busca o chat para pegar o ID do Telegram
     const chat = await prisma.chat.findUnique({ where: { id: chatId } });
     
-    // VERIFICAÇÃO: Garante que temos o chat e o ID do Telegram
-    // Nota: Usei 'telegramChatId' pois é o padrão comum. Se no seu schema for 'telegramId', altere aqui.
-    if (!chat || !chat.telegramChatId) {
+    // CORREÇÃO 1: Usando 'telegramId' (conforme seu banco de dados)
+    if (!chat || !chat.telegramId) {
         return NextResponse.json({ error: 'Chat ou Telegram ID não encontrado' }, { status: 404 });
     }
 
@@ -32,8 +31,10 @@ export async function POST(req: Request) {
     // --- CENÁRIO A: TEM ARQUIVO ---
     if (file) {
       const telegramFormData = new FormData();
-      // Ajustado para usar chat.telegramChatId
-      telegramFormData.append('chat_id', chat.telegramChatId); 
+      
+      // CORREÇÃO 2: Usando chat.telegramId aqui também
+      telegramFormData.append('chat_id', chat.telegramId); 
+      
       if (content) telegramFormData.append('caption', content);
 
       // Converte o arquivo para Buffer/Blob para garantir o envio no Next.js Server
@@ -65,7 +66,6 @@ export async function POST(req: Request) {
       }
 
       // --- RECUPERAR URL DO TELEGRAM ---
-      // Isso permite que você mostre a imagem no chat sem ter S3
       let fileId;
       const resT = dataTelegram.result;
       
@@ -89,10 +89,11 @@ export async function POST(req: Request) {
     
     // --- CENÁRIO B: SÓ TEXTO ---
     else if (content) {
+      // CORREÇÃO 3: Usando chat.telegramId aqui também
       const resText = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chat.telegramChatId, text: content }),
+        body: JSON.stringify({ chat_id: chat.telegramId, text: content }),
       });
 
       if (!resText.ok) {
