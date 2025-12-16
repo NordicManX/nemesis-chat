@@ -7,7 +7,7 @@ import { useSession } from 'next-auth/react';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
-import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck } from 'lucide-react';
+import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X } from 'lucide-react';
 
 interface DashboardProps {
   chats: any[];
@@ -37,6 +37,11 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   const [localChats, setLocalChats] = useState(initialChats);
   const [startDate, setStartDate] = useState(dateFilter.start);
   const [endDate, setEndDate] = useState(dateFilter.end);
+
+  // --- ESTADOS DO MODAL DE NOVO CHAT ---
+  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [newChatData, setNewChatData] = useState({ name: '', telegramId: '', department: 'GERAL' });
+  const [creatingChat, setCreatingChat] = useState(false);
 
   useEffect(() => { setIsClient(true); }, []);
 
@@ -78,6 +83,7 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
     };
   }, [isResizing, resize, stopResizing]);
 
+  // Polling de Chats
   useEffect(() => {
     let isMounted = true;
     const fetchLatestChats = async () => {
@@ -126,7 +132,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
     }
   };
 
-  // --- FUNÇÃO DE FECHAR O CHAT ---
   const handleCloseChat = () => {
       setActiveChat(null);
       const params = new URLSearchParams(window.location.search);
@@ -134,10 +139,38 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
       window.history.pushState(null, '', `/?${params.toString()}`);
   }
 
-  // --- FUNÇÃO PARA RESETAR ESTADO AO NAVEGAR ---
   const handleNavigation = () => {
       setActiveChat(null);
-      // Se precisar forçar algo mais, coloque aqui
+  };
+
+  // --- FUNÇÃO PARA CRIAR CHAT ---
+  const handleCreateChat = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newChatData.name || !newChatData.telegramId) return;
+
+      setCreatingChat(true);
+      try {
+          const res = await fetch('/api/chats/create', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newChatData)
+          });
+          
+          if (res.ok) {
+              const newChat = await res.json();
+              setLocalChats(prev => [newChat, ...prev.filter(c => c.id !== newChat.id)]);
+              handleChatClick(newChat.id);
+              setIsNewChatOpen(false);
+              setNewChatData({ name: '', telegramId: '', department: 'GERAL' });
+          } else {
+              alert("Erro ao criar contato.");
+          }
+      } catch (error) {
+          console.error(error);
+          alert("Erro de conexão.");
+      } finally {
+          setCreatingChat(false);
+      }
   };
 
   const getFlagColor = (level: number) => {
@@ -149,6 +182,71 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   return (
     <div className={`flex h-screen bg-gray-900 text-white overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
+      {/* --- MODAL NOVO CHAT --- */}
+      {isNewChatOpen && (
+          <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+                  <div className="flex justify-between items-center mb-6">
+                      <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                          <UserPlus className="text-emerald-500" /> Novo Atendimento
+                      </h2>
+                      <button onClick={() => setIsNewChatOpen(false)} className="text-gray-400 hover:text-white">
+                          <X size={24} />
+                      </button>
+                  </div>
+                  
+                  <form onSubmit={handleCreateChat} className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Nome do Cliente</label>
+                          <input 
+                              type="text" 
+                              required
+                              value={newChatData.name}
+                              onChange={e => setNewChatData({...newChatData, name: e.target.value})}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none"
+                              placeholder="Ex: João da Silva"
+                          />
+                      </div>
+                      
+                      <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Telegram ID (Numérico)</label>
+                          <input 
+                              type="text" 
+                              required
+                              value={newChatData.telegramId}
+                              onChange={e => setNewChatData({...newChatData, telegramId: e.target.value})}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none font-mono"
+                              placeholder="Ex: 123456789"
+                          />
+                          <p className="text-[10px] text-gray-500 mt-1">Use o @userinfobot no Telegram para descobrir o ID do cliente.</p>
+                      </div>
+
+                      <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Departamento Inicial</label>
+                          <select 
+                              value={newChatData.department}
+                              onChange={e => setNewChatData({...newChatData, department: e.target.value})}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none"
+                          >
+                              <option value="GERAL">Geral</option>
+                              <option value="FINANCEIRO">Financeiro</option>
+                              <option value="SUPORTE">Suporte</option>
+                              <option value="VENDAS">Vendas</option>
+                          </select>
+                      </div>
+
+                      <button 
+                          type="submit" 
+                          disabled={creatingChat}
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition mt-4 disabled:opacity-50"
+                      >
+                          {creatingChat ? 'Criando...' : 'Iniciar Conversa'}
+                      </button>
+                  </form>
+              </div>
+          </div>
+      )}
+
       {/* SIDEBAR */}
       <aside 
         ref={sidebarRef}
@@ -159,9 +257,25 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
       >
         <div className="p-4 border-b border-gray-800 flex-shrink-0">
           <h1 className="text-xl font-bold text-emerald-400 mb-4 truncate cursor-default">Nemesis Chat</h1>
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 text-gray-500" size={18} />
-            <input type="text" placeholder="Buscar cliente..." className="w-full bg-gray-800 text-sm text-white rounded-lg pl-10 pr-4 py-2 border border-gray-700 focus:outline-none focus:border-emerald-500"/>
+
+          {/* ÁREA DE BUSCA + BOTÃO NOVO CHAT */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+                <Search className="absolute left-3 top-2.5 text-gray-500" size={18} />
+                <input 
+                    type="text" 
+                    placeholder="Buscar..." 
+                    className="w-full bg-gray-800 text-sm text-white rounded-lg pl-10 pr-4 py-2 border border-gray-700 focus:outline-none focus:border-emerald-500"
+                />
+            </div>
+            
+            <button 
+                onClick={() => setIsNewChatOpen(true)}
+                className="p-2 bg-gray-800 hover:bg-emerald-600 border border-gray-700 hover:border-emerald-500 text-gray-300 hover:text-white rounded-lg transition shadow-sm"
+                title="Novo Atendimento"
+            >
+                <UserPlus size={20} />
+            </button>
           </div>
         </div>
 
@@ -196,7 +310,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
         {/* RODAPÉ DA SIDEBAR */}
         <div className="p-4 border-t border-gray-800 bg-gray-900 space-y-2 flex-shrink-0">
            {isAdmin && (
-               // AQUI ESTÁ A CORREÇÃO: onClick={handleNavigation}
                <Link href="/admin/users" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group cursor-pointer z-30 relative">
                   <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-emerald-500/50 transition">
                     <Settings size={16} />
@@ -204,8 +317,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                   <div className="flex-1"><p className="text-sm font-medium">Gestão de Equipe</p></div>
                </Link>
            )}
-           
-           {/* AQUI TAMBÉM: onClick={handleNavigation} */}
            <Link href="/profile" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition overflow-hidden cursor-pointer z-30 relative">
               <div className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 flex-shrink-0 overflow-hidden flex items-center justify-center">
                  {avatarUrl ? (
@@ -240,7 +351,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                         <ChevronRight className="rotate-180" size={20} /> Voltar
                     </button>
                  </div>
-                 {/* PASSAMOS O onClose AQUI */}
                  <ChatWindow chat={activeChat} initialMessages={activeChat.messages || []} onClose={handleCloseChat} />
             </div>
         ) : (
@@ -289,7 +399,7 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                   </div>
               )}
 
-              {/* KPIs e Gráficos */}
+              {/* KPIs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4">
                    <div className="p-3 bg-blue-500/10 text-blue-400 rounded-lg"><Users size={20} /></div>

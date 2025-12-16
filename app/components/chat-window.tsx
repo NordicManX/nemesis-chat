@@ -16,7 +16,7 @@ const DEPARTMENTS = ["GERAL", "FINANCEIRO", "SUPORTE", "VENDAS"];
 export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindowProps) {
   if (!chat) return null;
 
-  const [messages, setMessages] = useState(initialMessages || []);
+  const [messages, setMessages] = useState<any[]>(initialMessages || []);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [department, setDepartment] = useState(chat.department || "GERAL");
@@ -32,6 +32,29 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
   const prevChatIdRef = useRef<string | null>(null);
   const prevMsgCountRef = useRef(messages.length);
 
+  // --- 1. ORDENAÇÃO ABSOLUTA ---
+  // A lógica aqui é simples: Data menor em cima, maior em baixo.
+  // Se as datas forem IGUAIS, a mensagem com ID "temp-" (sua) ganha e vai pra baixo.
+  const sortedMessages = [...messages].sort((a: any, b: any) => {
+    const timeA = new Date(a.createdAt).getTime();
+    const timeB = new Date(b.createdAt).getTime();
+
+    // Diferença de tempo clara
+    if (timeA !== timeB) return timeA - timeB;
+
+    // EMPATE TÉCNICO (Mesmo milissegundo):
+    const isTempA = a.id.toString().startsWith('temp-');
+    const isTempB = b.id.toString().startsWith('temp-');
+
+    // Se A é temporária (nova) e B é real, A deve ir depois (em baixo)
+    if (isTempA && !isTempB) return 1;
+    if (!isTempA && isTempB) return -1;
+
+    // Se não, desempata por ID padrão
+    return a.id.toString().localeCompare(b.id.toString());
+  });
+
+  // --- 2. POLLING (ATUALIZAÇÃO) ---
   useEffect(() => {
     let isMounted = true;
     const fetchMessages = async () => {
@@ -43,34 +66,56 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
         });
         
         if (res.ok) {
-          const newMessages = await res.json();
+          const serverMessages = await res.json();
           if (isMounted) {
-            setMessages((prev) => {
-               if (newMessages.length !== prev.length) return newMessages;
-               const lastPrev = prev[prev.length - 1];
-               const lastNew = newMessages[newMessages.length - 1];
-               if (lastPrev?.id !== lastNew?.id) return newMessages;
-               return prev; 
+            setMessages((current) => {
+               // Mantém as mensagens temporárias que ainda não foram confirmadas pelo servidor
+               const myPendingMessages = current.filter(m => m.id.toString().startsWith('temp-'));
+               
+               // Verifica se a mensagem temporária já virou real no servidor (por conteúdo/tipo)
+               // Se sim, removemos ela da lista de pendentes para não duplicar
+               const filteredPending = myPendingMessages.filter(temp => {
+                   const alreadyInServer = serverMessages.some((serverMsg: any) => 
+                       // Uma verificação básica para ver se é a mesma mensagem
+                       serverMsg.content === temp.content && 
+                       serverMsg.type === temp.type &&
+                       // Verifica se foi criada nos últimos 10 segundos (margem de erro)
+                       Math.abs(new Date(serverMsg.createdAt).getTime() - new Date(temp.createdAt).getTime()) < 10000
+                   );
+                   return !alreadyInServer;
+               });
+
+               // Se o servidor trouxe exatamente o que já temos (fora as temps), não faz nada
+               const currentRealIds = current.filter(m => !m.id.toString().startsWith('temp-')).map(m => m.id);
+               const serverIds = serverMessages.map((m: any) => m.id);
+               if (JSON.stringify(currentRealIds) === JSON.stringify(serverIds) && filteredPending.length === myPendingMessages.length) {
+                   return current;
+               }
+
+               // Retorna lista do servidor + Minhas pendentes no final
+               return [...serverMessages, ...filteredPending];
             });
           }
         }
       } catch (error) {
-        console.error("Erro silencioso ao buscar mensagens:", error);
+        console.error("Polling error:", error);
       }
     };
     const interval = setInterval(fetchMessages, 2000);
     return () => { isMounted = false; clearInterval(interval); };
   }, [chat.id]);
 
+  // Scroll Automático
   useEffect(() => {
     const isNewChat = prevChatIdRef.current !== chat.id;
-    const hasNewMessages = messages.length > prevMsgCountRef.current;
-    if (isNewChat || hasNewMessages) {
-        messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? "auto" : "smooth" });
+    if (isNewChat || sortedMessages.length > prevMsgCountRef.current) {
+        setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? "auto" : "smooth" });
+        }, 100);
         prevChatIdRef.current = chat.id;
-        prevMsgCountRef.current = messages.length;
+        prevMsgCountRef.current = sortedMessages.length;
     }
-  }, [messages, chat.id]);
+  }, [sortedMessages.length, chat.id]);
 
   useEffect(() => {
     setMessages(initialMessages || []);
@@ -114,8 +159,7 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
         const file = items[i].getAsFile();
         if (file) {
           if (file.size > 4 * 1024 * 1024) {
-            alert("⚠️ A imagem colada é muito grande! Limite de 4MB.");
-            return;
+             alert("⚠️ Limite de 4MB."); return;
           }
           setSelectedFile(file);
           e.preventDefault(); 
@@ -140,23 +184,38 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     if (newMessage) formData.append('content', newMessage);
     if (selectedFile) formData.append('file', selectedFile);
 
+    // --- A MÁGICA DO TIMESTAMP PADDING ---
+    // Pega o horário da ÚLTIMA mensagem da lista (seja cliente ou agente)
+    let lastMsgTime = 0;
+    if (sortedMessages.length > 0) {
+        lastMsgTime = new Date(sortedMessages[sortedMessages.length - 1].createdAt).getTime();
+    }
+
+    // O horário da sua nova mensagem será O MAIOR entre: "Agora" ou "Última Mensagem + 10ms"
+    // Isso garante matematicamente que ela vai ficar em baixo.
+    const optimisticTime = Math.max(Date.now(), lastMsgTime + 10);
+    
+    const tempId = 'temp-' + Date.now();
+    const tempMsg = {
+      id: tempId,
+      content: newMessage || (selectedFile ? (selectedFile.type.startsWith('image/') ? '📷 Imagem enviada' : '📎 Arquivo enviado') : ''),
+      sender: 'AGENT',
+      type: selectedFile ? (selectedFile.type.startsWith('image/') ? 'IMAGE' : 'DOCUMENT') : 'TEXT',
+      mediaUrl: selectedFile && selectedFile.type.startsWith('image/') ? URL.createObjectURL(selectedFile) : null,
+      createdAt: new Date(optimisticTime).toISOString() // Data forçada para o futuro imediato
+    };
+    
+    setMessages((prev) => [...prev, tempMsg]);
+    setNewMessage('');
+    removeSelectedFile();
+
     try {
       const res = await fetch('/api/chat/send', { method: 'POST', body: formData });
       if (!res.ok) throw new Error("Erro no envio");
-
-      const tempMsg = {
-        id: 'temp-' + Date.now(),
-        content: newMessage || (selectedFile ? (selectedFile.type.startsWith('image/') ? '📷 Imagem enviada' : '📎 Arquivo enviado') : ''),
-        sender: 'AGENT',
-        type: selectedFile ? (selectedFile.type.startsWith('image/') ? 'IMAGE' : 'DOCUMENT') : 'TEXT',
-        mediaUrl: selectedFile && selectedFile.type.startsWith('image/') ? URL.createObjectURL(selectedFile) : null,
-        createdAt: new Date().toISOString()
-      };
-      setMessages((prev) => [...prev, tempMsg]);
-      setNewMessage('');
-      removeSelectedFile();
+      // Não precisamos fazer nada aqui, o Polling vai substituir a tempMsg pela real em 2s
     } catch (error) {
       alert("Erro ao enviar mensagem.");
+      setMessages(prev => prev.filter(m => m.id !== tempId));
     } finally {
       setSending(false);
     }
@@ -232,11 +291,9 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
         </button>
       </div>
 
-      {/* MENSAGENS */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scrollbar">
-        {messages.map((msg: any) => {
-            // Lógica para saber se deve mostrar o texto (Legenda)
-            // Mostra se o tipo for TEXTO puro OU se o conteúdo for diferente dos placeholders automáticos
+      {/* MENSAGENS (Sorted) */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scrollbar flex flex-col">
+        {sortedMessages.map((msg: any) => {
             const showCaption = msg.content && 
                                 msg.content !== '📷 Imagem enviada' && 
                                 msg.content !== '📎 Arquivo enviado';
@@ -245,14 +302,12 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
               <div key={msg.id} className={`flex ${msg.sender === 'AGENT' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] md:max-w-[70%] p-3 rounded-2xl text-sm flex flex-col ${msg.sender === 'AGENT' ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-gray-800 text-gray-200 rounded-tl-none border border-gray-700'}`}>
                   
-                  {/* ÁREA DE MÍDIA (IMAGEM) */}
                   {msg.type === 'IMAGE' && msg.mediaUrl && (
                     <div className="mb-1 cursor-pointer overflow-hidden rounded-lg" onClick={() => setSelectedImage(msg.mediaUrl)}>
                         <img src={msg.mediaUrl} alt="Midia" className="max-h-[300px] w-auto border border-white/10 hover:opacity-90 transition"/>
                     </div>
                   )}
 
-                  {/* ÁREA DE DOCUMENTO */}
                   {msg.type === 'DOCUMENT' && (
                     <div className="flex items-center gap-3 bg-black/20 p-2 rounded-lg cursor-pointer hover:bg-black/30 transition" onClick={(e) => downloadResource(e, msg.mediaUrl)}>
                         <FileText size={24} />
@@ -261,7 +316,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
                     </div>
                   )}
 
-                  {/* ÁREA DE TEXTO / LEGENDA */}
                   {showCaption && (
                     <p className={`${(msg.type === 'IMAGE' || msg.type === 'DOCUMENT') ? "mt-2 pt-2 border-t border-white/20" : ""} break-words whitespace-pre-wrap`}>
                         {msg.content}
@@ -286,11 +340,7 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
               <div className="relative bg-gray-800 border border-gray-700 p-2 rounded-xl flex items-center gap-3 w-fit pr-10 shadow-lg">
                  {selectedFile.type.startsWith('image/') ? (
                     <div className="h-12 w-12 rounded-lg overflow-hidden border border-gray-600 bg-black flex-shrink-0">
-                       <img 
-                          src={URL.createObjectURL(selectedFile)} 
-                          alt="Preview" 
-                          className="h-full w-full object-cover" 
-                       />
+                       <img src={URL.createObjectURL(selectedFile)} alt="Preview" className="h-full w-full object-cover" />
                     </div>
                  ) : (
                     <div className="h-12 w-12 bg-gray-700 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0">
@@ -301,11 +351,7 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
                     <span className="text-xs font-bold text-white truncate max-w-[180px]">{selectedFile.name}</span>
                     <span className="text-[10px] text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB</span>
                  </div>
-                 <button 
-                    onClick={removeSelectedFile}
-                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md transition transform hover:scale-110"
-                    title="Remover anexo"
-                 >
+                 <button onClick={removeSelectedFile} className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md transition transform hover:scale-110">
                     <X size={14} />
                  </button>
               </div>

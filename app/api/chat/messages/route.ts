@@ -8,7 +8,6 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
-    // 1. Verificar quem está tentando acessar
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
@@ -20,29 +19,28 @@ export async function GET(req: Request) {
 
     if (!chatId) return NextResponse.json({ error: 'Chat ID faltando' }, { status: 400 });
 
-    // 2. Buscar informações do Chat (apenas para checar o departamento)
-    const chat = await prisma.chat.findUnique({
-        where: { id: chatId },
-        select: { department: true } // Só precisamos saber o departamento
-    });
-
-    if (!chat) return NextResponse.json({ error: 'Chat não encontrado' }, { status: 404 });
-
-    // 3. REGRA DE OURO: Bloqueio de Acesso
+    // Verificação de permissão (Admin vê tudo, Agente só vê seu setor)
     if (userRole !== 'ADMIN') {
-        // Se o departamento do chat for diferente do departamento do usuário
-        if (chat.department !== userDept) {
-            return NextResponse.json(
-                { error: 'Você não tem permissão para ver conversas deste setor.' }, 
-                { status: 403 } // 403 Forbidden
-            );
-        }
+       const chat = await prisma.chat.findUnique({
+         where: { id: chatId },
+         select: { department: true } 
+       });
+
+       if (!chat) return NextResponse.json({ error: 'Chat não encontrado' }, { status: 404 });
+
+       // Se tiver departamento e não bater com o do usuário, bloqueia
+       if (chat.department && userDept && chat.department !== userDept) {
+           return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
+       }
     }
 
-    // 4. Se passou, busca as mensagens
     const messages = await prisma.message.findMany({
       where: { chatId },
-      orderBy: { createdAt: 'asc' }
+      // AJUSTE FINO: Ordena por data E por ID para desempatar milissegundos iguais
+      orderBy: [
+        { createdAt: 'asc' },
+        { id: 'asc' }
+      ]
     });
 
     return NextResponse.json(messages, {

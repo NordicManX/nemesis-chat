@@ -2,14 +2,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const runtime = 'nodejs'; 
+
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 export async function POST(req: Request) {
   try {
-    if (!TELEGRAM_TOKEN) {
-      throw new Error('TELEGRAM_BOT_TOKEN não configurado no .env');
-    }
-
     const formData = await req.formData();
     const chatId = formData.get('chatId') as string;
     const content = formData.get('content') as string;
@@ -17,112 +15,137 @@ export async function POST(req: Request) {
 
     if (!chatId) return NextResponse.json({ error: 'Chat ID faltando' }, { status: 400 });
 
-    // Busca o chat para pegar o ID do Telegram
     const chat = await prisma.chat.findUnique({ where: { id: chatId } });
     
-    // CORREÇÃO 1: Usando 'telegramId' (conforme seu banco de dados)
-    if (!chat || !chat.telegramId) {
-        return NextResponse.json({ error: 'Chat ou Telegram ID não encontrado' }, { status: 404 });
+    // Se não tiver ID do Telegram, salva como mensagem interna apenas
+    if (!chat) {
+        return NextResponse.json({ error: 'Chat não encontrado' }, { status: 404 });
     }
 
-    let savedMediaUrl = null;
-    let messageType = 'TEXT';
+    // --- PASSO 1: SALVAR NO BANCO IMEDIATAMENTE ---
+    // Isso garante que a mensagem NÃO SUMA da tela, mesmo se o Telegram der erro.
+    let initialType = 'TEXT';
+    let initialContent = content;
 
-    // --- CENÁRIO A: TEM ARQUIVO ---
     if (file) {
-      const telegramFormData = new FormData();
-      
-      // CORREÇÃO 2: Usando chat.telegramId aqui também
-      telegramFormData.append('chat_id', chat.telegramId); 
-      
-      if (content) telegramFormData.append('caption', content);
-
-      // Converte o arquivo para Buffer/Blob para garantir o envio no Next.js Server
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      const fileBlob = new Blob([buffer], { type: file.type });
-
-      // Se for imagem, usa sendPhoto, senão sendDocument
-      const isImage = file.type.startsWith('image/');
-      const endpoint = isImage ? 'sendPhoto' : 'sendDocument';
-      const formKey = isImage ? 'photo' : 'document';
-      messageType = isImage ? 'IMAGE' : 'DOCUMENT';
-
-      // Anexa o arquivo com nome explícito
-      telegramFormData.append(formKey, fileBlob, file.name);
-
-      console.log(`📤 Enviando ${file.name} para o Telegram...`);
-
-      const resTelegram = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/${endpoint}`, {
-        method: 'POST',
-        body: telegramFormData,
-      });
-
-      const dataTelegram = await resTelegram.json();
-
-      if (!dataTelegram.ok) {
-        console.error('❌ Erro Telegram:', dataTelegram);
-        throw new Error(`Telegram recusou o arquivo: ${dataTelegram.description}`);
-      }
-
-      // --- RECUPERAR URL DO TELEGRAM ---
-      let fileId;
-      const resT = dataTelegram.result;
-      
-      if (endpoint === 'sendPhoto') {
-        // Pega a última foto do array (a de maior qualidade)
-        fileId = resT.photo[resT.photo.length - 1].file_id;
-      } else {
-        fileId = resT.document?.file_id || resT.audio?.file_id || resT.video?.file_id || resT.voice?.file_id;
-      }
-
-      if (fileId) {
-        // Pega o caminho do arquivo (file_path)
-        const resPath = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`);
-        const dataPath = await resPath.json();
-        if (dataPath.ok) {
-          // Monta a URL pública do arquivo no servidor do Telegram
-          savedMediaUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${dataPath.result.file_path}`;
+        initialType = file.type.startsWith('image/') ? 'IMAGE' : 'DOCUMENT';
+        // Placeholder enquanto faz upload
+        if (!content) {
+            initialContent = initialType === 'IMAGE' ? '📷 Enviando imagem...' : '📎 Enviando arquivo...';
         }
-      }
-    } 
-    
-    // --- CENÁRIO B: SÓ TEXTO ---
-    else if (content) {
-      // CORREÇÃO 3: Usando chat.telegramId aqui também
-      const resText = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chat.telegramId, text: content }),
-      });
-
-      if (!resText.ok) {
-          const err = await resText.json();
-          throw new Error(`Erro envio texto: ${err.description}`);
-      }
     }
 
-    // --- SALVAR NO BANCO ---
-    const newMessage = await prisma.message.create({
+    const savedMessage = await prisma.message.create({
       data: {
-        content: content || (messageType === 'IMAGE' ? '📷 Imagem enviada' : '📎 Arquivo enviado'),
+        chatId,
+        content: initialContent || '...',
         sender: 'AGENT',
-        chatId: chatId,
         isRead: true,
-        type: messageType as any, // Cast para evitar erro de TS se o enum for estrito
-        mediaUrl: savedMediaUrl
-      },
+        type: initialType as any,
+        mediaUrl: null 
+      }
     });
 
+    // Atualiza timestamp do chat
     await prisma.chat.update({
       where: { id: chatId },
       data: { lastMessageAt: new Date() }
     });
 
-    return NextResponse.json(newMessage);
+    // Se não tiver token ou ID do cliente, paramos aqui (mensagem salva apenas internamente)
+    if (!TELEGRAM_TOKEN || !chat.telegramId) {
+        console.warn("⚠️ Mensagem salva, mas não enviada ao Telegram (Falta Token ou ID)");
+        return NextResponse.json(savedMessage);
+    }
+
+    // --- PASSO 2: ENVIAR PARA O TELEGRAM (BACKGROUND) ---
+    // Usamos setImmediate ou apenas não damos 'await' no retorno final para não travar a UI
+    // Mas aqui faremos sequencial rápido para atualizar a URL
+    
+    try {
+        let telegramSuccess = false;
+        let finalMediaUrl = null;
+
+        if (file) {
+            console.log(`📤 Enviando arquivo para ID: ${chat.telegramId}`);
+            
+            const telegramFormData = new FormData();
+            telegramFormData.append('chat_id', chat.telegramId);
+            if (content) telegramFormData.append('caption', content);
+
+            const arrayBuffer = await file.arrayBuffer();
+            const blob = new Blob([arrayBuffer], { type: file.type });
+            
+            const isImage = file.type.startsWith('image/');
+            const endpoint = isImage ? 'sendPhoto' : 'sendDocument';
+            const formKey = isImage ? 'photo' : 'document';
+
+            telegramFormData.append(formKey, blob, file.name);
+
+            const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/${endpoint}`, {
+                method: 'POST',
+                body: telegramFormData,
+            });
+
+            const data = await res.json();
+
+            if (data.ok) {
+                telegramSuccess = true;
+                const resT = data.result;
+                let fileId = endpoint === 'sendPhoto' ? resT.photo[resT.photo.length - 1].file_id : resT.document?.file_id;
+                
+                if (fileId) {
+                    const pathRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`);
+                    const pathData = await pathRes.json();
+                    if (pathData.ok) {
+                        finalMediaUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${pathData.result.file_path}`;
+                    }
+                }
+            } else {
+                console.error("❌ Erro Telegram (Arquivo):", data);
+                // Se falhar arquivo, tenta mandar texto de erro
+            }
+        } 
+        else if (content) {
+            // Envio de Texto
+            const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chat.telegramId, text: content }),
+            });
+            const data = await res.json();
+            if (data.ok) telegramSuccess = true;
+            else console.error("❌ Erro Telegram (Texto):", data);
+        }
+
+        // --- PASSO 3: ATUALIZAR MENSAGEM NO BANCO ---
+        if (telegramSuccess) {
+            // Se tinha arquivo, atualiza a URL e remove o texto de "Enviando..."
+            if (file) {
+                await prisma.message.update({
+                    where: { id: savedMessage.id },
+                    data: { 
+                        mediaUrl: finalMediaUrl,
+                        content: content || (initialType === 'IMAGE' ? '📷 Imagem enviada' : '📎 Arquivo enviado')
+                    }
+                });
+            }
+        } else {
+            // Se falhou no Telegram (ex: chat not found), avisamos no banco
+            await prisma.message.update({
+                where: { id: savedMessage.id },
+                data: { content: `⚠️ Erro envio (Telegram): ${content || 'Arquivo'}` }
+            });
+        }
+
+    } catch (err) {
+        console.error("Erro processo Telegram:", err);
+    }
+
+    return NextResponse.json(savedMessage);
 
   } catch (error: any) {
-    console.error('Erro no endpoint de envio:', error);
-    return NextResponse.json({ error: error.message || 'Erro interno no servidor' }, { status: 500 });
+    console.error('❌ ERRO CRÍTICO ROUTE:', error);
+    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }
 }
