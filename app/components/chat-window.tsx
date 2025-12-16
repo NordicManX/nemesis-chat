@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, X, ArrowLeft, Check, Briefcase, Maximize2, ZoomIn, ZoomOut, Download, Paperclip, FileText, Flag } from 'lucide-react';
+import { Send, X, ArrowLeft, Check, Briefcase, Download, Paperclip, FileText, Flag } from 'lucide-react';
 
 interface ChatWindowProps {
   chat: any;
@@ -32,7 +32,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
   const prevChatIdRef = useRef<string | null>(null);
   const prevMsgCountRef = useRef(messages.length);
 
-  // --- BUSCA DE MENSAGENS EM TEMPO REAL ---
   useEffect(() => {
     let isMounted = true;
     const fetchMessages = async () => {
@@ -63,7 +62,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     return () => { isMounted = false; clearInterval(interval); };
   }, [chat.id]);
 
-  // --- ROLAGEM INTELIGENTE ---
   useEffect(() => {
     const isNewChat = prevChatIdRef.current !== chat.id;
     const hasNewMessages = messages.length > prevMsgCountRef.current;
@@ -80,7 +78,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     setUrgency(chat.urgencyLevel || 1);
   }, [initialMessages, chat]);
 
-  // --- HANDLERS ---
   async function handleChangeUrgency(level: number) {
     setUrgency(level);
     await fetch('/api/chat/urgency', {
@@ -110,26 +107,19 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     }
   };
 
-  // 👇 NOVA FUNÇÃO: Lida com o Ctrl+V (Paste) 👇
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    // Verifica itens no clipboard
     const items = e.clipboardData.items;
-    
     for (let i = 0; i < items.length; i++) {
-      // Procura por algo que seja imagem
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
-        
         if (file) {
-          // Validação de tamanho (4MB)
           if (file.size > 4 * 1024 * 1024) {
             alert("⚠️ A imagem colada é muito grande! Limite de 4MB.");
             return;
           }
-          
           setSelectedFile(file);
-          e.preventDefault(); // Impede que o "texto" binário da imagem seja colado no input
-          return; // Para no primeiro arquivo encontrado
+          e.preventDefault(); 
+          return;
         }
       }
     }
@@ -154,10 +144,9 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
       const res = await fetch('/api/chat/send', { method: 'POST', body: formData });
       if (!res.ok) throw new Error("Erro no envio");
 
-      // Atualização Otimista
       const tempMsg = {
         id: 'temp-' + Date.now(),
-        content: newMessage || (selectedFile ? '📎 Arquivo enviado' : ''),
+        content: newMessage || (selectedFile ? (selectedFile.type.startsWith('image/') ? '📷 Imagem enviada' : '📎 Arquivo enviado') : ''),
         sender: 'AGENT',
         type: selectedFile ? (selectedFile.type.startsWith('image/') ? 'IMAGE' : 'DOCUMENT') : 'TEXT',
         mediaUrl: selectedFile && selectedFile.type.startsWith('image/') ? URL.createObjectURL(selectedFile) : null,
@@ -245,38 +234,53 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
 
       {/* MENSAGENS */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scrollbar">
-        {messages.map((msg: any) => (
-          <div key={msg.id} className={`flex ${msg.sender === 'AGENT' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] md:max-w-[70%] p-3 rounded-2xl text-sm ${msg.sender === 'AGENT' ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-gray-800 text-gray-200 rounded-tl-none border border-gray-700'}`}>
-              
-              {msg.type === 'IMAGE' && msg.mediaUrl ? (
-                <div className="mb-1 cursor-pointer" onClick={() => setSelectedImage(msg.mediaUrl)}>
-                    <img src={msg.mediaUrl} alt="Midia" className="rounded-lg max-h-[300px] w-auto border border-gray-600"/>
+        {messages.map((msg: any) => {
+            // Lógica para saber se deve mostrar o texto (Legenda)
+            // Mostra se o tipo for TEXTO puro OU se o conteúdo for diferente dos placeholders automáticos
+            const showCaption = msg.content && 
+                                msg.content !== '📷 Imagem enviada' && 
+                                msg.content !== '📎 Arquivo enviado';
+
+            return (
+              <div key={msg.id} className={`flex ${msg.sender === 'AGENT' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] md:max-w-[70%] p-3 rounded-2xl text-sm flex flex-col ${msg.sender === 'AGENT' ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-gray-800 text-gray-200 rounded-tl-none border border-gray-700'}`}>
+                  
+                  {/* ÁREA DE MÍDIA (IMAGEM) */}
+                  {msg.type === 'IMAGE' && msg.mediaUrl && (
+                    <div className="mb-1 cursor-pointer overflow-hidden rounded-lg" onClick={() => setSelectedImage(msg.mediaUrl)}>
+                        <img src={msg.mediaUrl} alt="Midia" className="max-h-[300px] w-auto border border-white/10 hover:opacity-90 transition"/>
+                    </div>
+                  )}
+
+                  {/* ÁREA DE DOCUMENTO */}
+                  {msg.type === 'DOCUMENT' && (
+                    <div className="flex items-center gap-3 bg-black/20 p-2 rounded-lg cursor-pointer hover:bg-black/30 transition" onClick={(e) => downloadResource(e, msg.mediaUrl)}>
+                        <FileText size={24} />
+                        <div><p className="font-mono text-xs">Arquivo Anexado</p></div>
+                        <Download size={16} />
+                    </div>
+                  )}
+
+                  {/* ÁREA DE TEXTO / LEGENDA */}
+                  {showCaption && (
+                    <p className={`${(msg.type === 'IMAGE' || msg.type === 'DOCUMENT') ? "mt-2 pt-2 border-t border-white/20" : ""} break-words whitespace-pre-wrap`}>
+                        {msg.content}
+                    </p>
+                  )}
+                  
+                  <div className="flex items-center justify-end gap-1 mt-1 opacity-60">
+                    <span className="text-[10px]">{new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    {msg.sender === 'AGENT' && <Check size={12} />}
+                  </div>
                 </div>
-              ) : msg.type === 'DOCUMENT' ? (
-                <div className="flex items-center gap-3 bg-black/20 p-2 rounded-lg cursor-pointer" onClick={(e) => downloadResource(e, msg.mediaUrl)}>
-                    <FileText size={24} />
-                    <div><p className="font-mono text-xs">Arquivo Anexado</p></div>
-                    <Download size={16} />
-                </div>
-              ) : (
-                <p>{msg.content}</p>
-              )}
-              
-              <div className="flex items-center justify-end gap-1 mt-1 opacity-60">
-                <span className="text-[10px]">{new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                {msg.sender === 'AGENT' && <Check size={12} />}
               </div>
-            </div>
-          </div>
-        ))}
+            );
+        })}
         <div ref={messagesEndRef} />
       </div>
 
       {/* INPUT */}
       <div className="bg-gray-900 border-t border-gray-800 p-3 md:p-4">
-        
-        {/* PREVIEW DO ARQUIVO */}
         {selectedFile && (
            <div className="mb-2 animate-slide-up">
               <div className="relative bg-gray-800 border border-gray-700 p-2 rounded-xl flex items-center gap-3 w-fit pr-10 shadow-lg">
@@ -317,7 +321,7 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            onPaste={handlePaste} // <--- AQUI ESTÁ A MÁGICA
+            onPaste={handlePaste}
             placeholder={selectedFile ? "Adicionar legenda..." : "Digite (ou cole imagem)..."}
             className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 text-white transition placeholder-gray-500"
             disabled={sending}
