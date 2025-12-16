@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react'; 
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
-import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2 } from 'lucide-react';
 
 interface DashboardProps {
   chats: any[];
@@ -43,11 +43,21 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   const [newChatData, setNewChatData] = useState({ name: '', telegramId: '', department: 'GERAL' });
   const [creatingChat, setCreatingChat] = useState(false);
 
+  // --- ESTADO DO MENU DE OPÇÕES (3 PONTINHOS) ---
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
   useEffect(() => { setIsClient(true); }, []);
 
   useEffect(() => {
     if (serverSelectedChat) setActiveChat(serverSelectedChat);
   }, [serverSelectedChat]);
+
+  // Fecha o menu se clicar fora
+  useEffect(() => {
+    const handleClickOutside = () => setOpenMenuId(null);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     async function fetchUserAvatar() {
@@ -87,6 +97,9 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   useEffect(() => {
     let isMounted = true;
     const fetchLatestChats = async () => {
+        // Se tiver um menu aberto, evitamos atualizar a lista para não fechar o menu na cara do usuário
+        if (openMenuId) return; 
+
         try {
             const url = `/api/chats/list?startDate=${startDate}&endDate=${endDate}&t=${Date.now()}`;
             const res = await fetch(url, { cache: 'no-store' });
@@ -94,7 +107,13 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                 const data = await res.json();
                 if (isMounted) {
                     setLocalChats(prevChats => {
-                        if (JSON.stringify(prevChats) === JSON.stringify(data)) return prevChats;
+                        const prevIds = prevChats.map(c => c.id).join(',');
+                        const newIds = data.map((c: any) => c.id).join(',');
+                        const prevUnread = prevChats.map(c => c.unreadCount).join(',');
+                        const newUnread = data.map((c: any) => c.unreadCount).join(',');
+
+                        if (prevIds === newIds && prevUnread === newUnread) return prevChats;
+
                         return data.map((c: any) => {
                              if (activeChat && c.id === activeChat.id) return { ...c, unreadCount: 0 };
                              return c;
@@ -106,7 +125,7 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
     };
     const interval = setInterval(fetchLatestChats, 4000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [startDate, endDate, activeChat]);
+  }, [startDate, endDate, activeChat, openMenuId]);
 
   useEffect(() => {
     if (activeChat) {
@@ -143,7 +162,35 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
       setActiveChat(null);
   };
 
-  // --- FUNÇÃO PARA CRIAR CHAT ---
+  // --- NOVA FUNÇÃO: DELETAR DA SIDEBAR ---
+  const handleDeleteChatFromSidebar = async (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation(); // Impede que abra o chat ao clicar no excluir
+    setOpenMenuId(null); // Fecha o menu
+
+    if (!confirm("⚠️ Tem certeza que deseja EXCLUIR esta conversa?\n\nTodo o histórico será apagado.")) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/chats/delete?chatId=${chatId}`, { method: 'DELETE' });
+        if (res.ok) {
+            setLocalChats(prev => prev.filter(c => c.id !== chatId));
+            if (activeChat?.id === chatId) {
+                handleCloseChat();
+            }
+        } else {
+            alert("Erro ao excluir.");
+        }
+    } catch (error) {
+        alert("Erro de conexão.");
+    }
+  };
+
+  const toggleMenu = (e: React.MouseEvent, chatId: string) => {
+      e.stopPropagation();
+      setOpenMenuId(prev => prev === chatId ? null : chatId);
+  };
+
   const handleCreateChat = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!newChatData.name || !newChatData.telegramId) return;
@@ -218,7 +265,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                               className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none font-mono"
                               placeholder="Ex: 123456789"
                           />
-                          <p className="text-[10px] text-gray-500 mt-1">Use o @userinfobot no Telegram para descobrir o ID do cliente.</p>
                       </div>
 
                       <div>
@@ -258,7 +304,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
         <div className="p-4 border-b border-gray-800 flex-shrink-0">
           <h1 className="text-xl font-bold text-emerald-400 mb-4 truncate cursor-default">Nemesis Chat</h1>
 
-          {/* ÁREA DE BUSCA + BOTÃO NOVO CHAT */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 text-gray-500" size={18} />
@@ -284,24 +329,53 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
             <div 
                 key={chat.id} 
                 onClick={() => handleChatClick(chat.id)}
-                className={`block p-4 transition border-b border-gray-800/50 group cursor-pointer 
+                className={`relative block p-4 transition border-b border-gray-800/50 group cursor-pointer 
                     ${activeChat?.id === chat.id ? 'bg-gray-800 border-l-4 border-l-emerald-500' : 'hover:bg-gray-800/50'}`}
             >
               <div className="flex justify-between items-start mb-1 pointer-events-none">
-                <div className="flex items-center gap-2 flex-1 truncate pr-2">
+                <div className="flex items-center gap-2 flex-1 truncate pr-6">
                     {chat.urgencyLevel > 1 && <span className={`h-2 w-2 rounded-full shrink-0 ${getFlagColor(chat.urgencyLevel)}`}></span>}
                     <h3 className={`font-semibold text-sm truncate ${activeChat?.id === chat.id ? 'text-white' : 'text-gray-200'}`}>{chat.customerName || 'Cliente'}</h3>
                 </div>
-                <span className="text-[10px] text-gray-500 whitespace-nowrap ml-2">
+
+                {/* --- HORA COM EFEITO SWAP (some no hover ou menu aberto) --- */}
+                <span className={`text-[10px] text-gray-500 whitespace-nowrap ml-2 transition-opacity duration-200 
+                    ${openMenuId === chat.id ? 'opacity-0' : 'group-hover:opacity-0'}`}>
                   {chat.lastMessageTime ? new Date(chat.lastMessageTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                 </span>
               </div>
+
               <div className="flex justify-between items-center mt-1 pointer-events-none">
                 <p className={`text-xs truncate w-full pr-2 ${activeChat?.id === chat.id ? 'text-gray-300' : 'text-gray-400'}`}>{chat.lastMessagePreview}</p>
                 {chat.unreadCount > 0 && chat.id !== activeChat?.id && (
                   <span className="bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full shadow-lg shadow-blue-500/40 animate-pulse">{chat.unreadCount}</span>
                 )}
               </div>
+
+              {/* BOTÃO 3 PONTINHOS (MENU) - Aparece no lugar da hora */}
+              <div className={`absolute right-3 top-3 z-20 transition-all duration-200
+                 ${openMenuId === chat.id ? 'opacity-100 scale-100' : 'opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}`}>
+                 
+                 <button 
+                    onClick={(e) => toggleMenu(e, chat.id)}
+                    className="p-1 hover:bg-gray-700 bg-gray-800 border border-gray-700 rounded text-gray-400 hover:text-white shadow-sm"
+                 >
+                     <MoreVertical size={14} />
+                 </button>
+
+                 {/* DROPDOWN MENU */}
+                 {openMenuId === chat.id && (
+                     <div className="absolute right-0 top-6 bg-gray-800 border border-gray-700 rounded-lg shadow-xl w-32 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
+                         <button 
+                            onClick={(e) => handleDeleteChatFromSidebar(e, chat.id)}
+                            className="w-full text-left px-4 py-3 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-500 flex items-center gap-2 font-medium"
+                         >
+                             <Trash2 size={14} /> Excluir
+                         </button>
+                     </div>
+                 )}
+              </div>
+
             </div>
           ))}
           {localChats.length === 0 && <div className="p-8 text-center text-gray-500 text-sm">Nenhum atendimento neste período.</div>}
@@ -351,7 +425,13 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                         <ChevronRight className="rotate-180" size={20} /> Voltar
                     </button>
                  </div>
-                 <ChatWindow chat={activeChat} initialMessages={activeChat.messages || []} onClose={handleCloseChat} />
+                 {/* Passamos uma key para forçar remontagem se trocar de chat, limpando estados */}
+                 <ChatWindow 
+                    key={activeChat.id}
+                    chat={activeChat} 
+                    initialMessages={activeChat.messages || []} 
+                    onClose={handleCloseChat} 
+                 />
             </div>
         ) : (
           <>

@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, X, ArrowLeft, Check, Briefcase, Download, Paperclip, FileText, Flag } from 'lucide-react';
+// Adicionei o ícone 'Trash2' aqui na importação 👇
+import { Send, X, ArrowLeft, Check, Briefcase, Download, Paperclip, FileText, Flag, Trash2 } from 'lucide-react';
 
 interface ChatWindowProps {
   chat: any;
@@ -21,6 +22,7 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
   const [sending, setSending] = useState(false);
   const [department, setDepartment] = useState(chat.department || "GERAL");
   const [urgency, setUrgency] = useState(chat.urgencyLevel || 1);
+  const [isDeleting, setIsDeleting] = useState(false); // Estado para loading da exclusão
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,29 +34,23 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
   const prevChatIdRef = useRef<string | null>(null);
   const prevMsgCountRef = useRef(messages.length);
 
-  // --- 1. ORDENAÇÃO ABSOLUTA ---
-  // A lógica aqui é simples: Data menor em cima, maior em baixo.
-  // Se as datas forem IGUAIS, a mensagem com ID "temp-" (sua) ganha e vai pra baixo.
+  // --- ORDENAÇÃO ABSOLUTA ---
   const sortedMessages = [...messages].sort((a: any, b: any) => {
     const timeA = new Date(a.createdAt).getTime();
     const timeB = new Date(b.createdAt).getTime();
 
-    // Diferença de tempo clara
     if (timeA !== timeB) return timeA - timeB;
 
-    // EMPATE TÉCNICO (Mesmo milissegundo):
     const isTempA = a.id.toString().startsWith('temp-');
     const isTempB = b.id.toString().startsWith('temp-');
 
-    // Se A é temporária (nova) e B é real, A deve ir depois (em baixo)
     if (isTempA && !isTempB) return 1;
     if (!isTempA && isTempB) return -1;
 
-    // Se não, desempata por ID padrão
     return a.id.toString().localeCompare(b.id.toString());
   });
 
-  // --- 2. POLLING (ATUALIZAÇÃO) ---
+  // --- POLLING ---
   useEffect(() => {
     let isMounted = true;
     const fetchMessages = async () => {
@@ -69,30 +65,22 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
           const serverMessages = await res.json();
           if (isMounted) {
             setMessages((current) => {
-               // Mantém as mensagens temporárias que ainda não foram confirmadas pelo servidor
                const myPendingMessages = current.filter(m => m.id.toString().startsWith('temp-'));
-               
-               // Verifica se a mensagem temporária já virou real no servidor (por conteúdo/tipo)
-               // Se sim, removemos ela da lista de pendentes para não duplicar
                const filteredPending = myPendingMessages.filter(temp => {
                    const alreadyInServer = serverMessages.some((serverMsg: any) => 
-                       // Uma verificação básica para ver se é a mesma mensagem
                        serverMsg.content === temp.content && 
                        serverMsg.type === temp.type &&
-                       // Verifica se foi criada nos últimos 10 segundos (margem de erro)
                        Math.abs(new Date(serverMsg.createdAt).getTime() - new Date(temp.createdAt).getTime()) < 10000
                    );
                    return !alreadyInServer;
                });
 
-               // Se o servidor trouxe exatamente o que já temos (fora as temps), não faz nada
                const currentRealIds = current.filter(m => !m.id.toString().startsWith('temp-')).map(m => m.id);
                const serverIds = serverMessages.map((m: any) => m.id);
                if (JSON.stringify(currentRealIds) === JSON.stringify(serverIds) && filteredPending.length === myPendingMessages.length) {
                    return current;
                }
 
-               // Retorna lista do servidor + Minhas pendentes no final
                return [...serverMessages, ...filteredPending];
             });
           }
@@ -105,7 +93,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     return () => { isMounted = false; clearInterval(interval); };
   }, [chat.id]);
 
-  // Scroll Automático
   useEffect(() => {
     const isNewChat = prevChatIdRef.current !== chat.id;
     if (isNewChat || sortedMessages.length > prevMsgCountRef.current) {
@@ -131,6 +118,35 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
         body: JSON.stringify({ chatId: chat.id, urgencyLevel: level }),
     });
     router.refresh(); 
+  }
+
+  // --- NOVA FUNÇÃO DE EXCLUIR CHAT ---
+  async function handleDeleteChat() {
+    if (!confirm("⚠️ Tem certeza que deseja EXCLUIR esta conversa?\n\nTodo o histórico será apagado permanentemente.")) {
+        return;
+    }
+
+    setIsDeleting(true);
+    try {
+        const res = await fetch(`/api/chats/delete?chatId=${chat.id}`, {
+            method: 'DELETE'
+        });
+
+        if (res.ok) {
+            // Fecha a janela. O Dashboard vai atualizar a lista sozinho no próximo polling (4s)
+            // ou podemos forçar um refresh se o Dashboard passasse essa função.
+            // Por enquanto, fechar é suficiente.
+            if (onClose) onClose();
+            else router.push('/');
+            router.refresh(); // Tenta forçar refresh do server component se houver
+        } else {
+            alert("Erro ao excluir chat.");
+            setIsDeleting(false);
+        }
+    } catch (error) {
+        alert("Erro de conexão.");
+        setIsDeleting(false);
+    }
   }
 
   const downloadResource = (e: React.MouseEvent, url: string | null) => {
@@ -184,15 +200,10 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     if (newMessage) formData.append('content', newMessage);
     if (selectedFile) formData.append('file', selectedFile);
 
-    // --- A MÁGICA DO TIMESTAMP PADDING ---
-    // Pega o horário da ÚLTIMA mensagem da lista (seja cliente ou agente)
     let lastMsgTime = 0;
     if (sortedMessages.length > 0) {
         lastMsgTime = new Date(sortedMessages[sortedMessages.length - 1].createdAt).getTime();
     }
-
-    // O horário da sua nova mensagem será O MAIOR entre: "Agora" ou "Última Mensagem + 10ms"
-    // Isso garante matematicamente que ela vai ficar em baixo.
     const optimisticTime = Math.max(Date.now(), lastMsgTime + 10);
     
     const tempId = 'temp-' + Date.now();
@@ -202,7 +213,7 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
       sender: 'AGENT',
       type: selectedFile ? (selectedFile.type.startsWith('image/') ? 'IMAGE' : 'DOCUMENT') : 'TEXT',
       mediaUrl: selectedFile && selectedFile.type.startsWith('image/') ? URL.createObjectURL(selectedFile) : null,
-      createdAt: new Date(optimisticTime).toISOString() // Data forçada para o futuro imediato
+      createdAt: new Date(optimisticTime).toISOString()
     };
     
     setMessages((prev) => [...prev, tempMsg]);
@@ -212,7 +223,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     try {
       const res = await fetch('/api/chat/send', { method: 'POST', body: formData });
       if (!res.ok) throw new Error("Erro no envio");
-      // Não precisamos fazer nada aqui, o Polling vai substituir a tempMsg pela real em 2s
     } catch (error) {
       alert("Erro ao enviar mensagem.");
       setMessages(prev => prev.filter(m => m.id !== tempId));
@@ -286,9 +296,21 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
           </div>
         </div>
 
-        <button onClick={handleBack} className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition" title="Fechar Conversa">
-           <X size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+            {/* BOTÃO EXCLUIR */}
+            <button 
+                onClick={handleDeleteChat} 
+                disabled={isDeleting}
+                className="p-2 hover:bg-red-500/10 text-gray-400 hover:text-red-500 rounded-full transition" 
+                title="Excluir Conversa"
+            >
+                {isDeleting ? <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"/> : <Trash2 size={20} />}
+            </button>
+
+            <button onClick={handleBack} className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition" title="Fechar Conversa">
+                <X size={20} />
+            </button>
+        </div>
       </div>
 
       {/* MENSAGENS (Sorted) */}
