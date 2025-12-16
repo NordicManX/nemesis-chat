@@ -317,9 +317,14 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
 
       {/* MENSAGENS */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 space-y-4 no-scrollbar flex flex-col w-full">
+        {/* Adicionei 'index' no map para detectar as primeiras mensagens */}
         {sortedMessages.map((msg: any, index: number) => {
             const isMe = msg.sender === 'AGENT';
             const showCaption = msg.content && msg.content !== '📷 Imagem enviada' && msg.content !== '📎 Arquivo enviado';
+            
+            // --- CORREÇÃO DO MENU CORTADO ---
+            // Se for uma das 2 primeiras mensagens, o menu abre para BAIXO (top-full). 
+            // Senão, abre para CIMA (bottom-full).
             const isTopMessage = index < 2;
             const menuVerticalPosition = isTopMessage ? 'top-full mt-1' : 'bottom-full mb-1';
             const menuOrigin = isTopMessage ? 'origin-top' : 'origin-bottom';
@@ -350,6 +355,7 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
                       <span className="text-[10px]">{new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                       {isMe && (
                           <span title={msg.isRead ? "Visualizado" : "Enviado"}>
+                              {/* Ajuste do ícone para CheckCheck */}
                               <CheckCheck size={14} className={msg.isRead ? "text-blue-200" : "text-gray-400"} />
                           </span>
                       )}
