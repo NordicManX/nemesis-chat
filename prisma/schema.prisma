@@ -19,6 +19,7 @@ model Chat {
   messages      Message[]
   createdAt     DateTime  @default(now())
   lastMessageAt DateTime  @default(now())
+  status        String    @default("OPEN")
 }
 
 model Message {
