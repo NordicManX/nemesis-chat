@@ -8,14 +8,12 @@ import { Send, X, ArrowLeft, Check, Briefcase, Maximize2, ZoomIn, ZoomOut, Downl
 interface ChatWindowProps {
   chat: any;
   initialMessages: any[];
-  // NOVO: Função opcional para fechar o chat sem recarregar a página
   onClose?: () => void;
 }
 
 const DEPARTMENTS = ["GERAL", "FINANCEIRO", "SUPORTE", "VENDAS"];
 
 export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindowProps) {
-  // Proteção contra crash se chat for null
   if (!chat) return null;
 
   const [messages, setMessages] = useState(initialMessages || []);
@@ -112,6 +110,31 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
     }
   };
 
+  // 👇 NOVA FUNÇÃO: Lida com o Ctrl+V (Paste) 👇
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    // Verifica itens no clipboard
+    const items = e.clipboardData.items;
+    
+    for (let i = 0; i < items.length; i++) {
+      // Procura por algo que seja imagem
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        
+        if (file) {
+          // Validação de tamanho (4MB)
+          if (file.size > 4 * 1024 * 1024) {
+            alert("⚠️ A imagem colada é muito grande! Limite de 4MB.");
+            return;
+          }
+          
+          setSelectedFile(file);
+          e.preventDefault(); // Impede que o "texto" binário da imagem seja colado no input
+          return; // Para no primeiro arquivo encontrado
+        }
+      }
+    }
+  };
+
   const removeSelectedFile = () => {
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -166,13 +189,9 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
       return "text-gray-600 hover:text-emerald-500"; 
   };
 
-  // Lógica do botão Voltar/Fechar
   const handleBack = () => {
-      if (onClose) {
-          onClose(); // Se o pai passou função de fechar, usa ela (Instantâneo)
-      } else {
-          router.push('/'); // Fallback para navegação tradicional
-      }
+      if (onClose) onClose();
+      else router.push('/');
   };
 
   return (
@@ -193,7 +212,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
       {/* HEADER */}
       <div className="h-16 border-b border-gray-800 flex items-center justify-between px-4 md:px-6 bg-gray-900 flex-shrink-0 relative z-50 shadow-md">
         <div className="flex items-center gap-3">
-          {/* Botão Voltar Mobile */}
           <button onClick={handleBack} className="md:hidden p-2 -ml-2 text-gray-400 hover:text-white rounded-full">
             <ArrowLeft size={20} />
           </button>
@@ -203,7 +221,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
                 <h2 className="text-lg font-bold text-white truncate max-w-[150px] md:max-w-[300px]">{chat.customerName}</h2>
                 <div className="relative group">
                     <button className={`p-1 rounded ${getFlagColor(urgency)}`}><Flag size={16} fill={urgency > 1 ? "currentColor" : "none"} /></button>
-                    {/* Dropdown de urgência simplificado */}
                     <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg p-1 hidden group-hover:flex flex-col gap-1 z-50">
                         <button onClick={() => handleChangeUrgency(1)} className="px-3 py-2 text-xs text-gray-300 hover:bg-gray-700">Normal</button>
                         <button onClick={() => handleChangeUrgency(2)} className="px-3 py-2 text-xs text-yellow-500 hover:bg-gray-700">Atenção</button>
@@ -221,7 +238,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
           </div>
         </div>
 
-        {/* Botão Fechar Desktop */}
         <button onClick={handleBack} className="hidden md:block p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition" title="Fechar Conversa">
            <X size={20} />
         </button>
@@ -260,12 +276,10 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
       {/* INPUT */}
       <div className="bg-gray-900 border-t border-gray-800 p-3 md:p-4">
         
-        {/* 👇 PREVIEW DO ARQUIVO (VISUAL) 👇 */}
+        {/* PREVIEW DO ARQUIVO */}
         {selectedFile && (
            <div className="mb-2 animate-slide-up">
               <div className="relative bg-gray-800 border border-gray-700 p-2 rounded-xl flex items-center gap-3 w-fit pr-10 shadow-lg">
-                 
-                 {/* Lógica: Se for imagem mostra a foto, se não, mostra ícone */}
                  {selectedFile.type.startsWith('image/') ? (
                     <div className="h-12 w-12 rounded-lg overflow-hidden border border-gray-600 bg-black flex-shrink-0">
                        <img 
@@ -279,13 +293,10 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
                        <FileText size={24} />
                     </div>
                  )}
-
                  <div className="flex flex-col overflow-hidden">
                     <span className="text-xs font-bold text-white truncate max-w-[180px]">{selectedFile.name}</span>
                     <span className="text-[10px] text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB</span>
                  </div>
-
-                 {/* Botão de Remover (X) estilo "badge" no canto */}
                  <button 
                     onClick={removeSelectedFile}
                     className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md transition transform hover:scale-110"
@@ -296,7 +307,6 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
               </div>
            </div>
         )}
-        {/* 👆 FIM DO PREVIEW 👆 */}
 
         <form onSubmit={handleSend} className="flex gap-2 items-end">
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
@@ -307,8 +317,9 @@ export default function ChatWindow({ chat, initialMessages, onClose }: ChatWindo
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={selectedFile ? "Adicionar legenda..." : "Digite..."}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 text-white"
+            onPaste={handlePaste} // <--- AQUI ESTÁ A MÁGICA
+            placeholder={selectedFile ? "Adicionar legenda..." : "Digite (ou cole imagem)..."}
+            className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 text-white transition placeholder-gray-500"
             disabled={sending}
           />
           <button type="submit" disabled={sending || (!newMessage.trim() && !selectedFile)} className={`p-3 rounded-xl text-white transition ${sending || (!newMessage.trim() && !selectedFile) ? 'bg-gray-700 opacity-50 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
