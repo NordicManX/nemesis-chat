@@ -7,8 +7,8 @@ import { useSession, signOut } from 'next-auth/react';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
-// Adicionei PlugZap na importação 👇
-import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2, LogOut, Building2, PlugZap } from 'lucide-react';
+// Certifique-se que LayoutList está aqui 👇
+import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2, LogOut, Building2, PlugZap, LayoutList } from 'lucide-react';
 
 interface DashboardProps {
   chats: any[];
@@ -98,7 +98,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
   useEffect(() => {
     let isMounted = true;
     const fetchLatestChats = async () => {
-        // Se tiver um menu aberto, evitamos atualizar a lista para não fechar o menu na cara do usuário
         if (openMenuId) return; 
 
         try {
@@ -163,7 +162,6 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
       setActiveChat(null);
   };
 
-  // --- NOVA FUNÇÃO: DELETAR DA SIDEBAR ---
   const handleDeleteChatFromSidebar = async (e: React.MouseEvent, chatId: string) => {
     e.stopPropagation(); 
     setOpenMenuId(null); 
@@ -396,7 +394,17 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                </Link>
            )}
 
-           {/* --- NOVO: CANAIS DE CONEXÃO (BOTÃO ROXO) --- */}
+           {/* --- NOVO: GESTÃO DE ASSINANTES (BLOQUEAR) --- */}
+           {isAdmin && (
+               <Link href="/admin/tenants/manage" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-red-400 group cursor-pointer z-30 relative">
+                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-red-500/50 transition">
+                    <LayoutList size={16} />
+                  </div>
+                  <div className="flex-1"><p className="text-sm font-medium">Gestão de Assinantes</p></div>
+               </Link>
+           )}
+
+           {/* --- CANAIS DE CONEXÃO --- */}
            {isAdmin && (
                <Link href="/dashboard/settings" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-purple-400 group cursor-pointer z-30 relative">
                   <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-purple-500/50 transition">

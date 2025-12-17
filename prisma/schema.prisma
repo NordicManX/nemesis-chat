@@ -17,11 +17,13 @@ model Organization {
   slug          String   @unique // Identificador único na URL (ex: "pizzaria-joao")
   
   // Configurações de Conexão (Onde o cliente coloca o token dele)
+  isActive      Boolean  @default(true)
   telegramToken String?  
   whatsappKey   String?  // Caso integre com Evolution API no futuro
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  
 
   // Relações: Uma empresa tem vários usuários e vários chats
   users         User[]
