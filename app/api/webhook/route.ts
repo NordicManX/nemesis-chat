@@ -2,18 +2,16 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export const dynamic = 'force-dynamic'; // Adicione isso para garantir que não faça cache
+export const dynamic = 'force-dynamic';
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-// Função auxiliar para pegar o link do arquivo
-async function getTelegramFileUrl(fileId: string): Promise<string | null> {
+// Função auxiliar agora pede o TOKEN dinâmico
+async function getTelegramFileUrl(fileId: string, token: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`);
+    const res = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
     const data = await res.json();
     
     if (data.ok && data.result.file_path) {
-      return `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${data.result.file_path}`;
+      return `https://api.telegram.org/file/bot${token}/${data.result.file_path}`;
     }
   } catch (e) {
     console.error('Erro ao buscar arquivo do Telegram:', e);
@@ -23,16 +21,32 @@ async function getTelegramFileUrl(fileId: string): Promise<string | null> {
 
 export async function POST(req: Request) {
   try {
-    // 1. Validação de Segurança Básica
-    if (!TELEGRAM_TOKEN) {
-      console.error('TELEGRAM_BOT_TOKEN não definido');
-      return NextResponse.json({ error: 'Configuração interna inválida' }, { status: 500 });
+    // 1. Identificar a Organização via URL (Ex: /api/webhook?orgId=123)
+    const { searchParams } = new URL(req.url);
+    const orgId = searchParams.get('orgId');
+
+    if (!orgId) {
+        console.error('Webhook: orgId não fornecido na URL');
+        return NextResponse.json({ error: 'Org ID Missing' }, { status: 400 });
     }
 
+    // 2. Buscar o Token da Organização no Banco
+    const organization = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { telegramToken: true }
+    });
+
+    if (!organization || !organization.telegramToken) {
+        console.error(`Webhook: Organização ${orgId} não encontrada ou sem token.`);
+        return NextResponse.json({ error: 'Configuração inválida' }, { status: 404 });
+    }
+
+    const TELEGRAM_TOKEN = organization.telegramToken;
+
+    // 3. Processar o Update
     const update = await req.json();
     const { message } = update;
 
-    // Se não for uma mensagem (ex: status de 'digitando...' ou edição), ignora
     if (!message) return NextResponse.json({ ok: true });
 
     // Dados do remetente
@@ -40,17 +54,25 @@ export async function POST(req: Request) {
     const telegramId = chat.id.toString();
     const customerName = from.first_name + (from.last_name ? ` ${from.last_name}` : '');
 
-    // 2. Garante/Atualiza o Chat (Upsert)
+    // 4. Garante/Atualiza o Chat (Upsert COM organizationId)
+    // Nota: O schema deve ter @@unique([telegramId, organizationId])
     const chatRecord = await prisma.chat.upsert({
-      where: { telegramId },
+      where: { 
+        telegramId_organizationId: { // Chave composta do Prisma
+            telegramId, 
+            organizationId: orgId 
+        }
+      },
       update: { 
         customerName,
-        lastMessageAt: new Date() 
+        lastMessageAt: new Date()
       }, 
       create: {
         telegramId,
+        organizationId: orgId, // Vincula à empresa correta
         customerName,
-        lastMessageAt: new Date()
+        lastMessageAt: new Date(),
+        status: 'OPEN'
       },
     });
 
@@ -58,39 +80,38 @@ export async function POST(req: Request) {
     let msgType = 'TEXT'; 
     let msgMediaUrl = null;
 
-    // --- LÓGICA DE CONTEÚDO ---
+    // --- LÓGICA DE CONTEÚDO (Passando o Token Dinâmico) ---
 
     // A. Texto
     if (message.text) {
       msgContent = message.text;
     } 
-    // B. Foto (Comprimida)
+    // B. Foto
     else if (message.photo) {
       msgType = 'IMAGE';
       msgContent = '📷 Foto'; 
       const photo = message.photo[message.photo.length - 1];
-      msgMediaUrl = await getTelegramFileUrl(photo.file_id);
+      msgMediaUrl = await getTelegramFileUrl(photo.file_id, TELEGRAM_TOKEN);
     }
-    // C. Documento (Prints enviados como arquivo)
+    // C. Documento
     else if (message.document) {
       msgType = 'DOCUMENT'; 
       msgContent = `📎 Arquivo: ${message.document.file_name || 'Sem nome'}`;
-      msgMediaUrl = await getTelegramFileUrl(message.document.file_id);
+      msgMediaUrl = await getTelegramFileUrl(message.document.file_id, TELEGRAM_TOKEN);
     }
     // D. Áudio/Voz
     else if (message.voice || message.audio) {
-      msgType = 'AUDIO'; // Se não tiver AUDIO no schema, use DOCUMENT ou TEXT
+      msgType = 'AUDIO'; 
       msgContent = '🎤 Áudio';
       const fileId = message.voice ? message.voice.file_id : message.audio.file_id;
-      msgMediaUrl = await getTelegramFileUrl(fileId);
+      msgMediaUrl = await getTelegramFileUrl(fileId, TELEGRAM_TOKEN);
     }
 
-    // Se não identificou conteúdo suportado, apenas confirma recebimento
     if (!msgContent && !msgMediaUrl) {
         return NextResponse.json({ ok: true });
     }
 
-    // 3. Salva a Mensagem
+    // 5. Salva a Mensagem
     await prisma.message.create({
       data: {
         content: msgContent,
@@ -99,11 +120,7 @@ export async function POST(req: Request) {
         sender: 'CUSTOMER',
         chatId: chatRecord.id,
         isRead: false,
-        
-        // --- O PREGO QUE FALTAVA ---
-        // Salvamos o ID do Telegram. Sem isso, não dá pra responder citando a mensagem.
         telegramMessageId: message.message_id.toString() 
-        // ---------------------------
       },
     });
 

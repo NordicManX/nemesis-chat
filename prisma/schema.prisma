@@ -6,47 +6,85 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")  // Usa a porta 6543 (Pooler) para o site rodar rápido
-  directUrl = env("DIRECT_URL")    // Usa a porta 5432 (Direta) para o npx prisma db push funcionar
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-model Chat {
-  id            String    @id @default(cuid())
-  telegramId    String    @unique
-  customerName  String?
-  department    String?   @default("GERAL")
-  urgencyLevel  Int       @default(1) 
-  messages      Message[]
-  createdAt     DateTime  @default(now())
-  lastMessageAt DateTime  @default(now())
-  status        String    @default("OPEN")
-}
-
-model Message {
-  id        String   @id @default(cuid())
-  content   String?  
-  sender    String   
-  type      String   @default("TEXT") 
-  mediaUrl  String?  
-  isRead    Boolean  @default(false)
-  chatId    String
-  chat      Chat     @relation(fields: [chatId], references: [id])
-
-  telegramMessageId String? // Para poder apagar no Telegram depois
-  replyToId String?
-  replyTo   Message?  @relation("ReplyRelation", fields: [replyToId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  replies   Message[] @relation("ReplyRelation")
+// --- NOVA TABELA PARA MULTI-TENANCY (SaaS) ---
+model Organization {
+  id            String   @id @default(cuid())
+  name          String   // Nome da empresa do seu cliente (ex: "Pizzaria do João")
+  slug          String   @unique // Identificador único na URL (ex: "pizzaria-joao")
   
-  createdAt DateTime @default(now())
+  // Configurações de Conexão (Onde o cliente coloca o token dele)
+  telegramToken String?  
+  whatsappKey   String?  // Caso integre com Evolution API no futuro
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relações: Uma empresa tem vários usuários e vários chats
+  users         User[]
+  chats         Chat[]
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  name      String?
-  avatar    String?
-  role      String   @default("AGENT")    
-  department String  @default("GERAL")    
-  createdAt DateTime @default(now())
+  id             String        @id @default(cuid())
+  email          String        @unique
+  password       String
+  name           String?
+  avatar         String?
+  role           String        @default("AGENT") // ADMIN, AGENT
+  department     String        @default("GERAL")
+  
+  // Vínculo com a Organização
+  organizationId String?       // Opcional apenas para facilitar a migração inicial, ideal ser obrigatório depois
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  createdAt      DateTime      @default(now())
+}
+
+model Chat {
+  id             String       @id @default(cuid())
+  telegramId     String       // Removemos o @unique global aqui!
+  customerName   String?
+  department     String?      @default("GERAL")
+  urgencyLevel   Int          @default(1)
+  status         String       @default("OPEN")
+  
+  // Vínculo com a Organização
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  messages       Message[]
+  
+  createdAt      DateTime     @default(now())
+  lastMessageAt  DateTime     @default(now())
+
+  // REGRA DE OURO DO SAAS:
+  // O telegramId deve ser único APENAS dentro da mesma organização.
+  // Isso permite que o mesmo cliente (mesmo ID do Telegram) converse com 2 empresas diferentes que usam seu sistema.
+  @@unique([telegramId, organizationId])
+}
+
+model Message {
+  id                String   @id @default(cuid())
+  content           String?  
+  sender            String   // AGENT, CUSTOMER, SYSTEM
+  type              String   @default("TEXT") // TEXT, IMAGE, DOCUMENT, AUDIO
+  mediaUrl          String?  
+  isRead            Boolean  @default(false)
+  
+  chatId            String
+  chat              Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  // Campos para controle do Telegram
+  telegramMessageId String? 
+  
+  // Auto-relacionamento para Respostas
+  replyToId         String?
+  replyTo           Message?  @relation("ReplyRelation", fields: [replyToId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  replies           Message[] @relation("ReplyRelation")
+   
+  createdAt         DateTime @default(now())
 }
