@@ -7,8 +7,8 @@ import { useSession, signOut } from 'next-auth/react';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
-// Adicionei Building2 na importação 👇
-import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2, LogOut, Building2 } from 'lucide-react';
+// Adicionei PlugZap na importação 👇
+import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2, LogOut, Building2, PlugZap } from 'lucide-react';
 
 interface DashboardProps {
   chats: any[];
@@ -393,6 +393,16 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
                     <Building2 size={16} />
                   </div>
                   <div className="flex-1"><p className="text-sm font-medium">Novo Cliente (SaaS)</p></div>
+               </Link>
+           )}
+
+           {/* --- NOVO: CANAIS DE CONEXÃO (BOTÃO ROXO) --- */}
+           {isAdmin && (
+               <Link href="/dashboard/settings" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-purple-400 group cursor-pointer z-30 relative">
+                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-purple-500/50 transition">
+                    <PlugZap size={16} />
+                  </div>
+                  <div className="flex-1"><p className="text-sm font-medium">Canais de Conexão</p></div>
                </Link>
            )}
 
