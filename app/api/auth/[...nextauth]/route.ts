@@ -31,32 +31,34 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Senha incorreta');
         }
 
-        // Retornamos o usuário, mas o callback JWT vai filtrar o que é pesado
         return user;
       }
     })
   ],
   
   callbacks: {
+    // 1. Passa dados do Usuário (Banco) para o Token JWT
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
         token.role = (user as any).role;
         token.department = (user as any).department;
         
-        // ❌ REMOVIDO: Não podemos salvar Base64 no token, estoura o limite de 4kb
-        // token.avatar = (user as any).avatar; 
+        // --- OBRIGATÓRIO PARA O SAAS ---
+        token.organizationId = (user as any).organizationId; 
       }
       return token;
     },
+    
+    // 2. Passa dados do Token JWT para a Sessão (Front/API)
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.id as string;
         (session.user as any).role = token.role as string;
         (session.user as any).department = token.department as string;
-        
-        // ❌ REMOVIDO: O avatar não virá mais pela sessão
-        // (session.user as any).avatar = token.avatar as string;
+
+        // --- OBRIGATÓRIO PARA O SAAS ---
+        (session.user as any).organizationId = token.organizationId as string;
       }
       return session;
     }
@@ -68,7 +70,7 @@ export const authOptions: NextAuthOptions = {
   
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: 30 * 24 * 60 * 60, // 30 dias
   },
 
   secret: process.env.NEXTAUTH_SECRET,
