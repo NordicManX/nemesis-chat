@@ -2,7 +2,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Building2, User, Lock, Mail, Globe, CheckCircle, AlertTriangle, Plus } from 'lucide-react';
+import Link from 'next/link'; // <--- Importei o Link
+import { Building2, User, Lock, Mail, Globe, CheckCircle, AlertTriangle, Plus, ArrowLeft } from 'lucide-react'; // <--- Adicionei ArrowLeft
 
 export default function CreateTenantPage() {
   const [formData, setFormData] = useState({
@@ -16,7 +17,6 @@ export default function CreateTenantPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  // Gera um slug automático enquanto digita o nome (opcional)
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const name = e.target.value;
       const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
@@ -53,6 +53,13 @@ export default function CreateTenantPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white p-8 flex flex-col items-center">
       <div className="w-full max-w-2xl">
+        
+        {/* --- BOTÃO DE VOLTAR --- */}
+        <Link href="/" className="flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition w-fit group">
+            <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+            <span className="font-medium">Voltar ao Dashboard</span>
+        </Link>
+
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
             <Building2 className="text-emerald-500" /> Novo Cliente (SaaS)
         </h1>
@@ -60,7 +67,6 @@ export default function CreateTenantPage() {
 
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl p-8 shadow-2xl space-y-6">
             
-            {/* DADOS DA EMPRESA */}
             <div className="space-y-4">
                 <h3 className="text-sm font-bold text-emerald-500 uppercase tracking-wider mb-4 border-b border-gray-800 pb-2">Dados da Empresa</h3>
                 
@@ -96,7 +102,6 @@ export default function CreateTenantPage() {
                 </div>
             </div>
 
-            {/* DADOS DO ADMINISTRADOR */}
             <div className="space-y-4 pt-4">
                 <h3 className="text-sm font-bold text-blue-500 uppercase tracking-wider mb-4 border-b border-gray-800 pb-2">Administrador Inicial</h3>
                 
@@ -147,7 +152,6 @@ export default function CreateTenantPage() {
                 </div>
             </div>
 
-            {/* MENSAGENS DE ERRO/SUCESSO */}
             {message && (
                 <div className={`p-4 rounded-lg flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
                     {message.type === 'success' ? <CheckCircle /> : <AlertTriangle />}
