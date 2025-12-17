@@ -9,17 +9,26 @@ import bcrypt from 'bcryptjs';
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any).role !== 'ADMIN') {
+    
+    // 1. Segurança: Pega o ID da Organização do Admin logado
+    const userOrgId = (session?.user as any)?.organizationId;
+
+    if (!session || (session.user as any).role !== 'ADMIN' || !userOrgId) {
         return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 });
     }
 
+    // 2. Filtro: Busca APENAS usuários da mesma organização
     const users = await prisma.user.findMany({
+      where: {
+        organizationId: userOrgId // <--- O PULO DO GATO
+      },
       select: { id: true, name: true, email: true, role: true, department: true },
       orderBy: { name: 'asc' }
     });
 
     return NextResponse.json(users);
   } catch (error) {
+    console.error(error);
     return NextResponse.json({ error: 'Erro ao listar usuários' }, { status: 500 });
   }
 }
@@ -28,7 +37,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any).role !== 'ADMIN') {
+    const userOrgId = (session?.user as any)?.organizationId;
+
+    if (!session || (session.user as any).role !== 'ADMIN' || !userOrgId) {
         return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 });
     }
 
@@ -44,12 +55,21 @@ export async function POST(req: Request) {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // 3. Criação: Vincula o novo usuário à MESMA organização do Admin
     const newUser = await prisma.user.create({
-      data: { name, email, password: hashedPassword, role, department: department || 'GERAL' }
+      data: { 
+          name, 
+          email, 
+          password: hashedPassword, 
+          role, 
+          department: department || 'GERAL',
+          organizationId: userOrgId // <--- VINCULAÇÃO OBRIGATÓRIA
+      }
     });
 
     return NextResponse.json({ success: true, user: newUser });
   } catch (error) {
+    console.error(error);
     return NextResponse.json({ error: 'Erro interno.' }, { status: 500 });
   }
 }
@@ -58,7 +78,9 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any).role !== 'ADMIN') {
+    const userOrgId = (session?.user as any)?.organizationId;
+
+    if (!session || (session.user as any).role !== 'ADMIN' || !userOrgId) {
         return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 });
     }
 
@@ -67,10 +89,17 @@ export async function PUT(req: Request) {
 
     if (!id) return NextResponse.json({ error: 'ID do usuário faltando.' }, { status: 400 });
 
-    // Prepara objeto de atualização
+    // 4. Segurança: Verifica se o usuário alvo pertence à SUA organização antes de editar
+    const targetUser = await prisma.user.findFirst({
+        where: { id: id, organizationId: userOrgId }
+    });
+
+    if (!targetUser) {
+        return NextResponse.json({ error: 'Usuário não encontrado ou não pertence à sua equipe.' }, { status: 404 });
+    }
+
     const updateData: any = { name, email, role, department };
 
-    // Só atualiza a senha se o admin digitou uma nova
     if (password && password.trim() !== '') {
         updateData.password = await bcrypt.hash(password, 10);
     }
@@ -92,23 +121,33 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any).role !== 'ADMIN') {
+    const userOrgId = (session?.user as any)?.organizationId;
+
+    if (!session || (session.user as any).role !== 'ADMIN' || !userOrgId) {
         return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 });
     }
 
     const { id } = await req.json();
 
-    if (!id) {
-        return NextResponse.json({ error: 'ID do usuário faltando.' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'ID faltando.' }, { status: 400 });
+
+    // Evita deletar a si mesmo
+    if (id === (session.user as any).id) {
+        return NextResponse.json({ error: 'Você não pode deletar a si mesmo.' }, { status: 400 });
     }
 
-    // Opcional: Impedir que o admin delete a si mesmo para não se trancar para fora
-    // const myId = (session.user as any).id;
-    // if (id === myId) return NextResponse.json({ error: 'Você não pode deletar a si mesmo.' }, { status: 400 });
-
-    await prisma.user.delete({
-        where: { id }
+    // 5. Segurança: Garante que só deleta da PRÓPRIA organização
+    // Usamos deleteMany com filtro de ID + OrgID. Se não achar, não deleta nada (seguro).
+    const result = await prisma.user.deleteMany({
+        where: { 
+            id: id,
+            organizationId: userOrgId 
+        }
     });
+
+    if (result.count === 0) {
+        return NextResponse.json({ error: 'Usuário não encontrado ou sem permissão.' }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true });
 
