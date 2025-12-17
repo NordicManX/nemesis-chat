@@ -1,18 +1,20 @@
-// app/dashboard/settings/page.tsx
 'use client';
 
 import { useState } from 'react';
-import { Save, CheckCircle, AlertCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Save, CheckCircle, AlertTriangle, ArrowLeft, Send, HelpCircle } from 'lucide-react';
 
 export default function SettingsPage() {
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   async function handleConnect(e: React.FormEvent) {
     e.preventDefault();
+    if (!token) return;
+    
     setLoading(true);
-    setStatus('idle');
+    setMessage(null);
 
     try {
       const res = await fetch('/api/settings/telegram/connect', {
@@ -21,69 +23,95 @@ export default function SettingsPage() {
         body: JSON.stringify({ token })
       });
 
+      const data = await res.json();
+
       if (res.ok) {
-        setStatus('success');
-        setToken(''); // Limpa por segurança ou mantém, você decide
-        alert("Bot Conectado! Agora as mensagens chegarão aqui.");
+        setMessage({ type: 'success', text: 'Bot Conectado! Agora as mensagens chegarão aqui.' });
+        setToken(''); // Limpa o campo por segurança
       } else {
-        setStatus('error');
-        alert("Erro: Token inválido ou falha na conexão.");
+        setMessage({ type: 'error', text: data.error || 'Erro: Token inválido ou falha na conexão.' });
       }
     } catch (error) {
-      setStatus('error');
+      setMessage({ type: 'error', text: 'Erro de conexão com o servidor.' });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="p-8 bg-gray-950 min-h-screen text-white">
-      <h1 className="text-2xl font-bold mb-6">Configurações de Canais</h1>
-
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-2xl">
-        <div className="flex items-center gap-4 mb-6">
-            <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-2xl">✈️</div>
+    <div className="h-full w-full flex flex-col items-center justify-center p-4 animate-fade-in bg-gray-950 text-white">
+      
+      <div className="w-full max-w-2xl">
+        
+        {/* --- CABEÇALHO COM BOTÃO VOLTAR --- */}
+        <div className="flex items-center gap-4 mb-8">
+            <Link 
+                href="/" 
+                className="p-3 rounded-full bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 hover:text-white transition shadow-sm"
+                title="Voltar ao Dashboard"
+            >
+                <ArrowLeft size={24} />
+            </Link>
             <div>
-                <h2 className="text-lg font-bold">Conectar Telegram</h2>
-                <p className="text-sm text-gray-400">Insira o token do seu bot criado no @BotFather.</p>
+                <h1 className="text-3xl font-bold text-white">Configurações de Canais</h1>
+                <p className="text-gray-400 text-sm mt-1">Gerencie a conexão dos seus bots de atendimento.</p>
             </div>
         </div>
 
-        <form onSubmit={handleConnect} className="space-y-4">
-            <div>
-                <label className="block text-sm font-bold text-gray-400 mb-2">Bot Token</label>
-                <input 
-                    type="text" 
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    placeholder="Ex: 123456789:AAFwgh..." 
-                    className="w-full bg-gray-950 border border-gray-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none font-mono"
-                />
+        {/* --- CARD PRINCIPAL --- */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 shadow-2xl">
+            
+            <div className="flex items-start gap-4 mb-6">
+                <div className="p-4 bg-blue-500/10 rounded-xl">
+                    <Send className="text-blue-400" size={32} />
+                </div>
+                <div>
+                    <h2 className="text-xl font-bold text-white">Conectar Telegram</h2>
+                    <p className="text-gray-400 text-sm">Insira o token do seu bot criado no @BotFather.</p>
+                </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <form onSubmit={handleConnect} className="space-y-4">
+                <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Bot Token</label>
+                    <input 
+                        type="text" 
+                        value={token}
+                        onChange={(e) => setToken(e.target.value)}
+                        placeholder="Ex: 123456789:AAFwgh..."
+                        className="w-full bg-gray-950 border border-gray-700 rounded-lg p-4 text-white focus:border-emerald-500 outline-none transition font-mono text-sm"
+                    />
+                </div>
+
+                {message && (
+                    <div className={`p-4 rounded-lg flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                        {message.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+                        <p className="font-medium text-sm">{message.text}</p>
+                    </div>
+                )}
+
                 <button 
-                    type="submit" 
+                    type="submit"
                     disabled={loading || !token}
-                    className={`px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition
-                        ${loading ? 'bg-gray-700 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition flex items-center justify-center gap-2 mt-2"
                 >
-                    {loading ? 'Conectando...' : <><Save size={18} /> Salvar e Conectar</>}
+                    {loading ? 'Conectando...' : <><Save size={20} /> Salvar e Conectar</>}
                 </button>
+            </form>
 
-                {status === 'success' && <span className="text-emerald-400 flex items-center gap-1 text-sm"><CheckCircle size={16}/> Conectado!</span>}
-                {status === 'error' && <span className="text-red-400 flex items-center gap-1 text-sm"><AlertCircle size={16}/> Falha ao conectar.</span>}
+            {/* --- ÁREA DE AJUDA --- */}
+            <div className="mt-8 pt-6 border-t border-gray-800">
+                <h3 className="text-sm font-bold text-gray-300 flex items-center gap-2 mb-3">
+                    <HelpCircle size={16} /> Como obter o token?
+                </h3>
+                <ol className="text-sm text-gray-500 space-y-2 list-decimal list-inside bg-gray-950/50 p-4 rounded-lg border border-gray-800">
+                    <li>Abra o Telegram e busque por <strong className="text-blue-400">@BotFather</strong>.</li>
+                    <li>Envie o comando <code className="bg-gray-800 px-1 rounded text-gray-300">/newbot</code>.</li>
+                    <li>Dê um nome e um username para o seu bot.</li>
+                    <li>Copie o <strong className="text-emerald-400">HTTP API Token</strong> gerado e cole acima.</li>
+                </ol>
             </div>
-        </form>
 
-        <div className="mt-6 p-4 bg-blue-900/20 border border-blue-800/50 rounded-lg text-sm text-blue-200">
-            <p className="font-bold mb-1">Como obter o token?</p>
-            <ol className="list-decimal list-inside space-y-1 opacity-80">
-                <li>Abra o Telegram e busque por <strong>@BotFather</strong>.</li>
-                <li>Envie o comando <code>/newbot</code>.</li>
-                <li>Dê um nome e um username para o seu bot.</li>
-                <li>Copie o <strong>HTTP API Token</strong> gerado e cole acima.</li>
-            </ol>
         </div>
       </div>
     </div>
