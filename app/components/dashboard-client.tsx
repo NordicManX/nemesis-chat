@@ -384,6 +384,28 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
         </div>
 
         {/* RODAPÉ DA SIDEBAR */}
+
+          <div className="p-4 border-t border-gray-800 bg-gray-900 space-y-2 flex-shrink-0">
+           
+           {/* --- NOVO BOTÃO: PAINEL SAAS (CRIAR EMPRESAS) --- */}
+           {isAdmin && (
+               <Link href="/admin/tenants" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-blue-400 group cursor-pointer z-30 relative">
+                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-blue-500/50 transition">
+                    <Building2 size={16} />
+                  </div>
+                  <div className="flex-1"><p className="text-sm font-medium">Novo Cliente (SaaS)</p></div>
+               </Link>
+           )}
+
+           {isAdmin && (
+               <Link href="/admin/users" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group cursor-pointer z-30 relative">
+                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-emerald-500/50 transition">
+                    <Settings size={16} />
+                  </div>
+                  <div className="flex-1"><p className="text-sm font-medium">Gestão de Equipe</p></div>
+               </Link>
+           )}
+
         <div className="p-4 border-t border-gray-800 bg-gray-900 space-y-2 flex-shrink-0">
            {isAdmin && (
                <Link href="/admin/users" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group cursor-pointer z-30 relative">
