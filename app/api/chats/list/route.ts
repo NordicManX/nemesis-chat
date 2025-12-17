@@ -10,28 +10,35 @@ export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     
-    // Log de Debug (Verifique isso no terminal do VS Code)
-    console.log("API Chats - User:", session?.user?.email);
-
+    // 1. Segurança: Verifica se está logado e pega a Organização
     if (!session) {
         return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    }
+
+    const userOrgId = (session.user as any)?.organizationId;
+
+    if (!userOrgId) {
+        // Se o usuário não tem organização, não pode ver chat nenhum
+        return NextResponse.json({ error: 'Usuário sem organização vinculada' }, { status: 403 });
     }
 
     const userRole = (session.user as any)?.role || 'AGENT';
     const userDept = (session.user as any)?.department; 
 
-    // 1. CORREÇÃO DE QUERY: Evita passar undefined para o Prisma
-    let whereCondition: any = {};
+    // 2. FILTRO DE SEGURANÇA (SaaS)
+    // Começamos o filtro garantindo que só busque chats DA MESMA EMPRESA
+    let whereCondition: any = {
+        organizationId: userOrgId // <--- OBRIGATÓRIO: ISOLAMENTO DE DADOS
+    };
 
+    // Filtro de Departamento (apenas se não for Admin)
     if (userRole !== 'ADMIN') {
-        // Se o usuário não tem departamento, ele não deve ver nada ou deve ver algo padrão?
-        // Aqui assumimos que se for null, filtra por null (ou evita erro de undefined)
         if (userDept) {
-            whereCondition = { department: userDept };
+            whereCondition.department = userDept;
         } else {
-            // Opcional: Se não tem departamento, talvez não deva ver chamados específicos
-            // Descomente a linha abaixo se quiser bloquear usuários sem setor
-            // return NextResponse.json([], { status: 200 });
+             // Opcional: Se quiser que quem não tem departamento veja tudo da empresa, deixe assim.
+             // Se quiser bloquear, descomente abaixo:
+             // return NextResponse.json([], { status: 200 });
         }
     }
 
@@ -39,12 +46,11 @@ export async function GET(req: Request) {
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
 
-    // 2. CORREÇÃO DE DATAS: Proteção contra "Invalid Date"
+    // 3. Tratamento de Datas
     const now = new Date();
     const defaultStart = new Date(); 
     defaultStart.setDate(now.getDate() - 30);
     
-    // Verifica se a string é válida e não é "undefined" ou "null" texto
     let startDate = (startDateParam && startDateParam !== 'undefined' && startDateParam !== 'null') 
         ? new Date(startDateParam) 
         : defaultStart;
@@ -53,22 +59,16 @@ export async function GET(req: Request) {
         ? new Date(endDateParam) 
         : now;
 
-    // Se a data for inválida (ex: usuário digitou bobagem na URL), fallback para o padrão
     if (isNaN(startDate.getTime())) startDate = defaultStart;
     if (isNaN(endDate.getTime())) endDate = now;
 
     startDate.setHours(0,0,0,0);
     endDate.setHours(23,59,59,999);
 
-    console.log("API Chats - Filtro:", { 
-        dept: whereCondition.department, 
-        start: startDate.toISOString(), 
-        end: endDate.toISOString() 
-    });
-
+    // 4. Busca no Banco com o filtro da Organização
     const chatsRaw = await prisma.chat.findMany({
       where: {
-        ...whereCondition,
+        ...whereCondition, // Aqui dentro já tem o organizationId
         lastMessageAt: { gte: startDate, lte: endDate }
       },
       include: {
@@ -104,12 +104,9 @@ export async function GET(req: Request) {
     return NextResponse.json(chats, { headers: { 'Cache-Control': 'no-store, no-cache' } });
 
   } catch (error: any) {
-    // Log detalhado do erro real
-    console.error("❌ ERRO FATAL API CHATS:", error);
-    
-    // Retorna o erro em JSON para vermos no Network Tab se necessário
+    console.error("❌ ERRO API CHATS:", error);
     return NextResponse.json(
-        { error: 'Erro interno ao buscar chats', details: error.message }, 
+        { error: 'Erro interno', details: error.message }, 
         { status: 500 }
     );
   }
