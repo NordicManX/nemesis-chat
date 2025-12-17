@@ -2,8 +2,8 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link'; // <--- Importei o Link
-import { Building2, User, Lock, Mail, Globe, CheckCircle, AlertTriangle, Plus, ArrowLeft } from 'lucide-react'; // <--- Adicionei ArrowLeft
+import Link from 'next/link';
+import { Building2, User, Lock, Mail, Globe, CheckCircle, AlertTriangle, Plus, ArrowLeft } from 'lucide-react';
 
 export default function CreateTenantPage() {
   const [formData, setFormData] = useState({
@@ -54,16 +54,22 @@ export default function CreateTenantPage() {
     <div className="min-h-screen bg-gray-950 text-white p-8 flex flex-col items-center">
       <div className="w-full max-w-2xl">
         
-        {/* --- BOTÃO DE VOLTAR --- */}
-        <Link href="/" className="flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition w-fit group">
-            <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-            <span className="font-medium">Voltar ao Dashboard</span>
-        </Link>
-
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <Building2 className="text-emerald-500" /> Novo Cliente (SaaS)
-        </h1>
-        <p className="text-gray-400 mb-8">Cadastre uma nova empresa e seu administrador principal.</p>
+        {/* --- HEADER NO ESTILO "GESTÃO DE USUÁRIOS" --- */}
+        <div className="flex items-center gap-4 mb-8">
+            <Link 
+                href="/" 
+                className="p-3 rounded-full bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-400 hover:text-white transition shadow-sm"
+                title="Voltar ao Dashboard"
+            >
+                <ArrowLeft size={24} />
+            </Link>
+            <div>
+                <h1 className="text-3xl font-bold flex items-center gap-3 text-white">
+                    <Building2 className="text-emerald-500" /> Novo Cliente (SaaS)
+                </h1>
+                <p className="text-gray-400 text-sm mt-1">Cadastre uma nova empresa e seu administrador principal.</p>
+            </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl p-8 shadow-2xl space-y-6">
             
