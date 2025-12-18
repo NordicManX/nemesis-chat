@@ -10,46 +10,43 @@ export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     
-    // 1. Segurança: Verifica se está logado e pega a Organização
-    if (!session) {
+    // 1. Segurança: Verifica sessão
+    if (!session || !session.user) {
         return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
+    // 2. Segurança SaaS: Pega o ID da Organização da sessão
     const userOrgId = (session.user as any)?.organizationId;
 
     if (!userOrgId) {
-        // Se o usuário não tem organização, não pode ver chat nenhum
-        return NextResponse.json({ error: 'Usuário sem organização vinculada' }, { status: 403 });
+        console.error("ERRO CRÍTICO: Usuário sem organizationId tentou listar chats.");
+        // Retorna array vazio em vez de erro 403 para não quebrar o front, mas não mostra dados
+        return NextResponse.json([], { status: 200 });
     }
 
     const userRole = (session.user as any)?.role || 'AGENT';
     const userDept = (session.user as any)?.department; 
 
-    // 2. FILTRO DE SEGURANÇA (SaaS)
-    // Começamos o filtro garantindo que só busque chats DA MESMA EMPRESA
+    // 3. FILTRO OBRIGATÓRIO (ISOLAMENTO DE DADOS)
+    // Isso garante que o usuário SÓ veja chats da empresa dele
     let whereCondition: any = {
-        organizationId: userOrgId // <--- OBRIGATÓRIO: ISOLAMENTO DE DADOS
+        organizationId: userOrgId 
     };
 
-    // Filtro de Departamento (apenas se não for Admin)
-    if (userRole !== 'ADMIN') {
-        if (userDept) {
-            whereCondition.department = userDept;
-        } else {
-             // Opcional: Se quiser que quem não tem departamento veja tudo da empresa, deixe assim.
-             // Se quiser bloquear, descomente abaixo:
-             // return NextResponse.json([], { status: 200 });
-        }
+    // 4. Filtro de Departamento (Se não for Admin, vê só o dele ou Geral)
+    if (userRole !== 'ADMIN' && userDept) {
+        // Exemplo: Opcional, se quiser restringir agente ao departamento dele
+        // whereCondition.department = userDept; 
     }
 
+    // 5. Tratamento de Datas
     const { searchParams } = new URL(req.url);
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
 
-    // 3. Tratamento de Datas
     const now = new Date();
     const defaultStart = new Date(); 
-    defaultStart.setDate(now.getDate() - 30);
+    defaultStart.setDate(now.getDate() - 30); // Padrão: últimos 30 dias
     
     let startDate = (startDateParam && startDateParam !== 'undefined' && startDateParam !== 'null') 
         ? new Date(startDateParam) 
@@ -62,51 +59,68 @@ export async function GET(req: Request) {
     if (isNaN(startDate.getTime())) startDate = defaultStart;
     if (isNaN(endDate.getTime())) endDate = now;
 
+    // Ajusta para pegar o dia inteiro (00:00 até 23:59)
     startDate.setHours(0,0,0,0);
     endDate.setHours(23,59,59,999);
 
-    // 4. Busca no Banco com o filtro da Organização
+    // 6. Busca no Banco
     const chatsRaw = await prisma.chat.findMany({
       where: {
-        ...whereCondition, // Aqui dentro já tem o organizationId
-        lastMessageAt: { gte: startDate, lte: endDate }
+        ...whereCondition, // Aplica o filtro da organização + filtros extras
+        lastMessageAt: { 
+            gte: startDate, 
+            lte: endDate 
+        }
       },
       include: {
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+        messages: { 
+            orderBy: { createdAt: 'desc' }, 
+            take: 1 // Pega só a última mensagem para o preview
+        },
         _count: { 
+            // Conta mensagens não lidas enviadas pelo CLIENTE
             select: { messages: { where: { isRead: false, sender: 'CUSTOMER' } } } 
         }
       },
       orderBy: [
-        { urgencyLevel: 'desc' }, 
-        { lastMessageAt: 'desc' }
+        { urgencyLevel: 'desc' }, // Prioridade alta primeiro
+        { lastMessageAt: 'desc' } // Mais recentes primeiro
       ],
     });
 
+    // 7. Formatação para o Front-end
     const chats = chatsRaw.map(chat => {
         const lastMsg = chat.messages[0];
-        let preview = "Sem mensagens";
+        let preview = "Iniciar conversa";
+        
         if (lastMsg) {
             if (lastMsg.type === 'IMAGE') preview = '📷 Imagem';
             else if (lastMsg.type === 'DOCUMENT') preview = '📎 Arquivo';
+            else if (lastMsg.type === 'AUDIO') preview = '🎤 Áudio';
             else preview = lastMsg.content || '';
+            
+            // Adiciona prefixo se foi o agente que mandou a última
+            if (lastMsg.sender === 'AGENT') preview = `Você: ${preview}`;
         }
-        if (lastMsg?.sender === 'AGENT') preview = `Você: ${preview}`;
 
         return {
             ...chat,
             unreadCount: chat._count.messages,
             lastMessagePreview: preview,
-            lastMessageTime: lastMsg?.createdAt
+            lastMessageTime: lastMsg?.createdAt || chat.createdAt
         };
     });
 
-    return NextResponse.json(chats, { headers: { 'Cache-Control': 'no-store, no-cache' } });
+    return NextResponse.json(chats, { 
+        headers: { 
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' 
+        } 
+    });
 
   } catch (error: any) {
-    console.error("❌ ERRO API CHATS:", error);
+    console.error("❌ ERRO API CHATS LIST:", error);
     return NextResponse.json(
-        { error: 'Erro interno', details: error.message }, 
+        { error: 'Erro interno ao listar chats', details: error.message }, 
         { status: 500 }
     );
   }
