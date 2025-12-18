@@ -7,8 +7,11 @@ import { useSession, signOut } from 'next-auth/react';
 import LogoutButton from './logout-button';
 import MetricsChart from './metrics-chart';
 import ChatWindow from './chat-window';
-// Certifique-se que LayoutList está aqui 👇
 import { MessageSquare, Users, Activity, Clock, Search, ChevronRight, Settings, Calendar, Filter, BarChart3, ShieldCheck, UserPlus, X, MoreVertical, Trash2, LogOut, Building2, PlugZap, LayoutList } from 'lucide-react';
+
+// --- CONFIGURAÇÃO DE SUPER ADMIN ---
+// Coloque aqui o ID da organização "Nemesis Chat Admin" que vimos no seu banco de dados
+const SUPER_ADMIN_ORG_ID = "asda343ddaasdje39sssk3"; 
 
 interface DashboardProps {
   chats: any[];
@@ -26,7 +29,12 @@ interface DashboardProps {
 export default function DashboardClient({ chats: initialChats, kpi, chartData, selectedChat: serverSelectedChat, teamStats, dateFilter }: DashboardProps) {
   const router = useRouter();
   const { data: session } = useSession(); 
+  
+  // isAdmin = Qualquer administrador de qualquer empresa (Ex: Neno, Você)
   const isAdmin = (session?.user as any)?.role === 'ADMIN';
+
+  // isSuperAdmin = Apenas VOCÊ (Admin da empresa dona do SaaS)
+  const isSuperAdmin = isAdmin && (session?.user as any)?.organizationId === SUPER_ADMIN_ORG_ID;
 
   const [isClient, setIsClient] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -384,43 +392,42 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
         {/* RODAPÉ DA SIDEBAR */}
         <div className="p-4 border-t border-gray-800 bg-gray-900 space-y-2 flex-shrink-0">
            
-           {/* --- NOVO BOTÃO: PAINEL SAAS (CRIAR EMPRESAS) --- */}
-           {isAdmin && (
-               <Link href="/admin/tenants" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-blue-400 group cursor-pointer z-30 relative">
-                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-blue-500/50 transition">
-                    <Building2 size={16} />
-                  </div>
-                  <div className="flex-1"><p className="text-sm font-medium">Novo Cliente (SaaS)</p></div>
-               </Link>
+           {/* === ÁREA SUPER ADMIN (SÓ VOCÊ VÊ) === */}
+           {isSuperAdmin && (
+               <>
+                   <Link href="/admin/tenants" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-blue-400 group cursor-pointer z-30 relative">
+                      <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-blue-500/50 transition">
+                        <Building2 size={16} />
+                      </div>
+                      <div className="flex-1"><p className="text-sm font-medium">Novo Cliente (SaaS)</p></div>
+                   </Link>
+
+                   <Link href="/admin/tenants/manage" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-red-400 group cursor-pointer z-30 relative">
+                      <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-red-500/50 transition">
+                        <LayoutList size={16} />
+                      </div>
+                      <div className="flex-1"><p className="text-sm font-medium">Gestão de Assinantes</p></div>
+                   </Link>
+               </>
            )}
 
-           {/* --- NOVO: GESTÃO DE ASSINANTES (BLOQUEAR) --- */}
+           {/* === ÁREA TENANT ADMIN (VOCÊ E O NENO VEEM) === */}
            {isAdmin && (
-               <Link href="/admin/tenants/manage" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-red-400 group cursor-pointer z-30 relative">
-                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-red-500/50 transition">
-                    <LayoutList size={16} />
-                  </div>
-                  <div className="flex-1"><p className="text-sm font-medium">Gestão de Assinantes</p></div>
-               </Link>
-           )}
+               <>
+                   <Link href="/dashboard/settings" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-purple-400 group cursor-pointer z-30 relative">
+                      <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-purple-500/50 transition">
+                        <PlugZap size={16} />
+                      </div>
+                      <div className="flex-1"><p className="text-sm font-medium">Canais de Conexão</p></div>
+                   </Link>
 
-           {/* --- CANAIS DE CONEXÃO --- */}
-           {isAdmin && (
-               <Link href="/dashboard/settings" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-purple-400 group cursor-pointer z-30 relative">
-                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-purple-500/50 transition">
-                    <PlugZap size={16} />
-                  </div>
-                  <div className="flex-1"><p className="text-sm font-medium">Canais de Conexão</p></div>
-               </Link>
-           )}
-
-           {isAdmin && (
-               <Link href="/admin/users" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group cursor-pointer z-30 relative">
-                  <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-emerald-500/50 transition">
-                    <Settings size={16} />
-                  </div>
-                  <div className="flex-1"><p className="text-sm font-medium">Gestão de Equipe</p></div>
-               </Link>
+                   <Link href="/admin/users" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition text-gray-400 hover:text-emerald-400 group cursor-pointer z-30 relative">
+                      <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center group-hover:border-emerald-500/50 transition">
+                        <Settings size={16} />
+                      </div>
+                      <div className="flex-1"><p className="text-sm font-medium">Gestão de Equipe</p></div>
+                   </Link>
+               </>
            )}
            
            <Link href="/profile" onClick={handleNavigation} className="flex items-center gap-3 hover:bg-gray-800 p-2 rounded-lg transition overflow-hidden cursor-pointer z-30 relative">
@@ -506,6 +513,7 @@ export default function DashboardClient({ chats: initialChats, kpi, chartData, s
             {/* DASHBOARD SCROLL INVISÍVEL */}
             <div className="flex-1 overflow-y-auto p-4 md:p-8 no-scrollbar relative z-0">
               
+              {/* O Painel de Admin aparece para qualquer admin, pois é onde gerencia a equipe dele */}
               {isAdmin && (
                   <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-gray-900 to-gray-800 border border-gray-700 flex items-center justify-between">
                       <div className="flex items-center gap-4">
